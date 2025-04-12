@@ -22,6 +22,10 @@ const props = defineProps({
     type: String,
     default: '#9e9e9e'
   },
+  borderColor: {
+    type: String,
+    default: '#000000'
+  },
   gridCount: {
     type: Number,
     default: 13
@@ -143,6 +147,10 @@ watch(() => props.fontFamily, () => {
 });
 
 watch(() => props.lightColor, () => {
+  drawAllPages();
+});
+
+watch(() => props.borderColor, () => {
   drawAllPages();
 });
 
@@ -278,8 +286,8 @@ function drawPage(pageIndex: number, chars: string[]) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   
-  // 添加边框 - 使用更浅的绿色
-  ctx.strokeStyle = '#7fbf7f'; // 更浅的绿色边框
+  // 添加边框 - 使用用户选择的边框颜色
+  ctx.strokeStyle = props.borderColor;
   ctx.lineWidth = 1;
   ctx.strokeRect(0, 0, canvas.width, canvas.height);
   
@@ -329,14 +337,16 @@ function drawPage(pageIndex: number, chars: string[]) {
 function drawTianGrid(ctx: CanvasRenderingContext2D, x: number, y: number) {
   const halfGrid = gridSize.value / 2;
   
-  // 绘制外框 - 更浅的绿色
-  ctx.strokeStyle = '#7fbf7f'; // 更浅的绿色边框
+  // 绘制外框 - 使用用户选择的边框颜色
+  ctx.strokeStyle = props.borderColor;
   ctx.lineWidth = 1.5; // 稍微增加线宽，使线条更清晰
   ctx.strokeRect(x - halfGrid, y - halfGrid, gridSize.value, gridSize.value);
   
-  // 绘制十字线 - 浅绿色虚线
+  // 绘制十字线 - 使用边框颜色但透明度降低
   ctx.beginPath();
-  ctx.strokeStyle = '#a5d6a7'; // 更浅的绿色
+  // 将选择的颜色转换为RGBA格式，增加透明度
+  const borderColorRgba = convertToRgba(props.borderColor, 0.5);
+  ctx.strokeStyle = borderColorRgba;
   ctx.setLineDash([3, 3]); // 调整虚线样式，使其更明显
   
   // 横线
@@ -355,14 +365,16 @@ function drawTianGrid(ctx: CanvasRenderingContext2D, x: number, y: number) {
 function drawMiGrid(ctx: CanvasRenderingContext2D, x: number, y: number) {
   const halfGrid = gridSize.value / 2;
   
-  // 绘制外框 - 更浅的绿色
-  ctx.strokeStyle = '#7fbf7f'; // 更浅的绿色边框
+  // 绘制外框 - 使用用户选择的边框颜色
+  ctx.strokeStyle = props.borderColor;
   ctx.lineWidth = 1.5; // 稍微增加线宽，使线条更清晰
   ctx.strokeRect(x - halfGrid, y - halfGrid, gridSize.value, gridSize.value);
   
-  // 绘制米字格线 - 浅绿色虚线
+  // 绘制米字格线 - 使用边框颜色但透明度降低
   ctx.beginPath();
-  ctx.strokeStyle = '#a5d6a7'; // 更浅的绿色
+  // 将选择的颜色转换为RGBA格式，增加透明度
+  const borderColorRgba = convertToRgba(props.borderColor, 0.5);
+  ctx.strokeStyle = borderColorRgba;
   ctx.setLineDash([3, 3]); // 调整虚线样式，使其更明显
   
   // 横线
@@ -381,6 +393,20 @@ function drawMiGrid(ctx: CanvasRenderingContext2D, x: number, y: number) {
   
   // 重置虚线设置
   ctx.setLineDash([]);
+}
+
+// 将十六进制颜色转换为RGBA格式
+function convertToRgba(hex: string, alpha: number): string {
+  // 移除#号（如果有）
+  hex = hex.replace('#', '');
+  
+  // 解析RGB值
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  
+  // 返回RGBA字符串
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 </script>
 

@@ -8,6 +8,7 @@ const gridType = ref('田字格'); // 默认田字格, 可选'米字格'
 const fontSize = ref(40); // 字体大小，单位px，调整为默认40px
 const fontWeight = ref('normal'); // 字体粗细
 const lightColor = ref('#9e9e9e'); // 浅色字体颜色
+const borderColor = ref('#000000'); // 边框颜色，默认黑色
 const showPrintButton = ref(false);
 const gridCount = ref(13); // 每行格子数量，默认13个
 const fontFamily = ref('楷体, KaiTi, STKaiti'); // 默认字体
@@ -27,6 +28,14 @@ const colorOptions = [
   { name: '淡青', value: '#81d4fa' },
   { name: '淡绿', value: '#a5d6a7' },
   { name: '淡红', value: '#ef9a9a' }
+];
+
+// 预设边框颜色
+const borderColorOptions = [
+  { name: '黑色', value: '#000000' },
+  { name: '深蓝', value: '#1565c0' },
+  { name: '深绿', value: '#2e7d32' },
+  { name: '深红', value: '#c62828' }
 ];
 
 // 预设文本
@@ -58,6 +67,7 @@ function resetForm() {
   fontSize.value = 40; // 重置为40px
   fontWeight.value = 'normal';
   lightColor.value = '#9e9e9e';
+  borderColor.value = '#000000'; // 重置边框颜色
   gridCount.value = 13; // 重置为13格
   fontFamily.value = '楷体, KaiTi, STKaiti'; // 重置为默认字体
   showPrintButton.value = false;
@@ -168,6 +178,28 @@ function handleFontSelected(font: string) {
                 </label>
               </div>
             </div>
+            
+            <div class="control-group">
+              <label>边框颜色:</label>
+              <div class="color-options">
+                <label 
+                  v-for="color in borderColorOptions" 
+                  :key="color.value"
+                  class="color-option"
+                >
+                  <input 
+                    type="radio" 
+                    v-model="borderColor" 
+                    :value="color.value" 
+                  />
+                  <span 
+                    class="color-preview" 
+                    :style="{ backgroundColor: color.value }"
+                  ></span>
+                  {{ color.name }}
+                </label>
+              </div>
+            </div>
           </div>
           
           <div class="button-group">
@@ -198,13 +230,11 @@ function handleFontSelected(font: string) {
             :fontSize="fontSize" 
             :fontWeight="fontWeight" 
             :lightColor="lightColor" 
+            :borderColor="borderColor"
             :gridCount="gridCount"
             :fontFamily="fontFamily"
             :printMode="false"
           />
-        </div>
-        <div class="preview-info">
-          每行显示同一个字，第一个字为深色，其余为浅色。输入的每个不同汉字会单独占一行。
         </div>
       </div>
     </div>
