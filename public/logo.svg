@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <!-- 背景框 -->
+  <rect x="5" y="5" width="90" height="90" rx="8" ry="8" fill="white" stroke="#1e8449" stroke-width="2" />
+  
+  <!-- 田字格 -->
+  <rect x="20" y="20" width="60" height="60" rx="2" ry="2" fill="none" stroke="#1e8449" stroke-width="2" />
+  <line x1="20" y1="50" x2="80" y2="50" stroke="#a5d6a7" stroke-width="1.5" stroke-dasharray="3,3" />
+  <line x1="50" y1="20" x2="50" y2="80" stroke="#a5d6a7" stroke-width="1.5" stroke-dasharray="3,3" />
+  
+  <!-- 毛笔字"墨" -->
+  <g transform="translate(50, 50)" fill="none" stroke="#000" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <!-- 上部 "黑" -->
+    <path d="M-15,-20 H15 M0,-20 V-5 M-15,-12 H15" stroke-width="3" />
+    
+    <!-- 下部 "土" -->
+    <path d="M-15,5 H15 M0,5 V20 M-15,20 H15" stroke-width="3" />
+  </g>
+  
+  <!-- 装饰 - 毛笔墨滴 -->
+  <circle cx="85" cy="15" r="5" fill="#333" />
+  <circle cx="87" cy="18" r="3" fill="#555" opacity="0.7" />
+  <circle cx="80" cy="12" r="2" fill="#777" opacity="0.5" />
+</svg> 

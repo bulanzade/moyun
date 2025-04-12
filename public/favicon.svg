@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <!-- 背景 -->
+  <rect x="0" y="0" width="32" height="32" rx="4" fill="#1e8449" />
+  
+  <!-- 田字格简化 -->
+  <rect x="4" y="4" width="24" height="24" rx="1" fill="none" stroke="white" stroke-width="1.2" />
+  <line x1="4" y1="16" x2="28" y2="16" stroke="white" stroke-width="0.8" stroke-opacity="0.7" />
+  <line x1="16" y1="4" x2="16" y2="28" stroke="white" stroke-width="0.8" stroke-opacity="0.7" />
+  
+  <!-- 毛笔字"墨"简化 -->
+  <g fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <!-- 上部 "黑" 简化 -->
+    <line x1="8" y1="8" x2="24" y2="8" />
+    <line x1="16" y1="8" x2="16" y2="14" />
+    <line x1="8" y1="12" x2="24" y2="12" />
+    
+    <!-- 下部 "土" 简化 -->
+    <line x1="8" y1="20" x2="24" y2="20" />
+    <line x1="16" y1="20" x2="16" y2="26" />
+    <line x1="8" y1="26" x2="24" y2="26" />
+  </g>
+</svg> 
