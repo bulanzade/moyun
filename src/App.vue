@@ -90,7 +90,7 @@ function handleFontSelected(font: string) {
             <label>选择预设文本:</label>
             <div class="preset-buttons">
               <button 
-                v-for="(content, name) in presetTexts" 
+                v-for="name in Object.keys(presetTexts)" 
                 :key="name"
                 @click="selectPresetText(name)"
                 class="preset-button"

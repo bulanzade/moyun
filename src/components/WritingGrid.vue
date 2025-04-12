@@ -382,25 +382,6 @@ function drawMiGrid(ctx: CanvasRenderingContext2D, x: number, y: number) {
   // 重置虚线设置
   ctx.setLineDash([]);
 }
-
-const drawCharacter = (ctx: CanvasRenderingContext2D, char: string, x: number, y: number, width: number, height: number) => {
-  // 设置字体
-  const fontFamily = 'KaiTi, STKaiti, "华文楷体", sans-serif';
-  ctx.font = `${props.fontWeight} ${props.fontSize}px ${fontFamily}`;
-  ctx.fillStyle = '#000';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  
-  // 优化字体渲染，确保打印时字体清晰
-  if (props.printMode) {
-    ctx.textRendering = 'geometricPrecision';
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-  }
-  
-  // 绘制文字
-  ctx.fillText(char, x + width / 2, y + height / 2);
-};
 </script>
 
 <template>
