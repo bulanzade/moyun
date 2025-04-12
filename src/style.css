@@ -1,0 +1,91 @@
+:root {
+  font-family: 'SimSun', '宋体', serif;
+  line-height: 1.5;
+  font-weight: 400;
+  
+  --primary-color: #1e8449;
+  --secondary-color: #a5d6a7;
+  --text-color: #333;
+  --bg-color: #f8f9fa;
+  --control-bg: #eaf7ee;
+  --border-color: #d4edda;
+  
+  color: var(--text-color);
+  background-color: var(--bg-color);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button {
+  transition: all 0.2s ease;
+}
+
+button:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+/* 打印样式 */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 0.5cm auto; /* 上下边距0.5cm，左右自动（居中） */
+  }
+  
+  html, body {
+    width: 100%;
+    height: auto;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  
+  body {
+    background-color: #fff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  /* 隐藏控制元素 */
+  .controls, h1, h2, .print-button, .reset-button, .preview-info {
+    display: none !important;
+  }
+  
+  /* 确保页面断点生效 */
+  .page-break {
+    page-break-before: always;
+    break-before: page;
+  }
+  
+  /* 防止内容被分页截断 */
+  .page {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  
+  /* 特殊处理打印视图 */
+  .print-view {
+    padding: 0 !important;
+    margin: 0 auto !important; /* 水平居中 */
+    position: static !important;
+    display: block !important;
+  }
+  
+  /* 最大化纸张利用率 */
+  .writing-canvas {
+    max-height: calc(100% - 5mm);
+    margin: 0 auto !important; /* 水平居中 */
+  }
+}
