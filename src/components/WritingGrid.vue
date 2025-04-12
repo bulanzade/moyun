@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, defineProps, computed } from 'vue';
+import { ref, onMounted, watch, computed } from 'vue';
 
 const props = defineProps({
   text: {
