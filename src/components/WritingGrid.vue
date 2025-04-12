@@ -26,6 +26,10 @@ const props = defineProps({
     type: Number,
     default: 13
   },
+  fontFamily: {
+    type: String,
+    default: '楷体, KaiTi, STKaiti'
+  },
   printMode: {
     type: Boolean,
     default: false
@@ -131,6 +135,10 @@ watch(() => props.gridCount, () => {
 });
 
 watch(() => props.fontWeight, () => {
+  drawAllPages();
+});
+
+watch(() => props.fontFamily, () => {
   drawAllPages();
 });
 
@@ -265,8 +273,8 @@ function drawPage(pageIndex: number, chars: string[]) {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   
-  // 设置字体 - 使用自动计算的字体大小
-  ctx.font = `${props.fontWeight} ${calculatedFontSize.value}px "楷体", "楷体_GB2312", KaiTi, "Microsoft YaHei", sans-serif`;
+  // 设置字体 - 使用自动计算的字体大小和用户选择的字体
+  ctx.font = `${props.fontWeight} ${calculatedFontSize.value}px ${props.fontFamily}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   
