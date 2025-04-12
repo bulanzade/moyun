@@ -37,6 +37,10 @@ const props = defineProps({
   printMode: {
     type: Boolean,
     default: false
+  },
+  highQualityPrint: {
+    type: Boolean,
+    default: true
   }
 });
 
@@ -96,7 +100,13 @@ const fontSizeMultiplier = computed(() => {
 });
 
 // 自动计算的字体大小
-const calculatedFontSize = computed(() => gridSize.value * 0.6 * fontSizeMultiplier.value);
+const calculatedFontSize = computed(() => {
+  // 增加字体大小系数，使文字更清晰
+  const base = gridSize.value * 0.65 * fontSizeMultiplier.value;
+  
+  // 打印模式下略微增大字体，补偿打印时的缩小效果
+  return props.printMode ? base * 1.1 : base;
+});
 
 // 根据是否为打印模式调整样式
 const containerStyle = computed(() => {
@@ -154,6 +164,10 @@ watch(() => props.borderColor, () => {
   drawAllPages();
 });
 
+watch(() => props.highQualityPrint, () => {
+  drawAllPages();
+});
+
 // 创建所需的页面和canvas
 function createPages() {
   // 清空现有的引用
@@ -205,6 +219,16 @@ function createPages() {
       // 创建canvas
       const canvas = document.createElement('canvas');
       canvas.className = 'writing-canvas';
+      
+      // 设置canvas的CSS尺寸
+      const baseWidth = availableWidthPx.value;
+      canvas.style.width = `${baseWidth}px`;
+      
+      // 估算高度
+      const rowsForThisPage = endIdx - startIdx;
+      const baseHeight = rowsForThisPage * lineHeight.value;
+      canvas.style.height = `${baseHeight}px`;
+      
       pageDiv.appendChild(canvas);
       
       // 将页面添加到容器
@@ -215,36 +239,13 @@ function createPages() {
       canvasRef.value.push(canvas);
       
       // 获取绘图上下文
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext('2d', { alpha: false }); // alpha: false 提高性能
       canvasCtx.value.push(ctx);
     }
-    
-    // 设置每个canvas的大小
-    updateCanvasSizes();
     
     // 绘制所有页面
     drawAllPages();
   }, 0);
-}
-
-// 更新所有canvas的大小
-function updateCanvasSizes() {
-  // 为每个canvas设置大小
-  for (let i = 0; i < canvasRef.value.length; i++) {
-    const canvas = canvasRef.value[i];
-    if (!canvas) continue;
-    
-    // 计算该页中的行数
-    const startCharIndex = i * rowsPerPage.value;
-    const uniqueChars = [...new Set(props.text.replace(/\s+/g, ''))];
-    const endCharIndex = Math.min((i + 1) * rowsPerPage.value, uniqueChars.length);
-    const charsForThisPage = uniqueChars.slice(startCharIndex, endCharIndex);
-    const rowsForThisPage = charsForThisPage.length;
-    
-    // 设置Canvas大小 - 固定宽度为A4纸宽度，高度根据内容调整
-    canvas.width = availableWidthPx.value;
-    canvas.height = rowsForThisPage * lineHeight.value;
-  }
 }
 
 // 绘制所有页面
@@ -270,6 +271,19 @@ function drawPage(pageIndex: number, chars: string[]) {
   const ctx = canvasCtx.value[pageIndex]!;
   const canvas = canvasRef.value[pageIndex];
   
+  // 增加canvas的分辨率以提高渲染质量
+  const dpr = props.highQualityPrint ? (window.devicePixelRatio || 1) * 2 : (window.devicePixelRatio || 1);
+  const rect = canvas.getBoundingClientRect();
+  
+  // 设置canvas尺寸为实际物理像素大小
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  
+  // 缩放上下文以匹配css尺寸
+  ctx.scale(dpr, dpr);
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  
   // 清空画布
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   
@@ -277,7 +291,7 @@ function drawPage(pageIndex: number, chars: string[]) {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   
-  // 设置字体抗锯齿
+  // 设置字体抗锯齿和平滑度
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   
@@ -288,12 +302,12 @@ function drawPage(pageIndex: number, chars: string[]) {
   
   // 添加边框 - 使用用户选择的边框颜色
   ctx.strokeStyle = props.borderColor;
-  ctx.lineWidth = 1;
-  ctx.strokeRect(0, 0, canvas.width, canvas.height);
+  ctx.lineWidth = props.highQualityPrint ? 1.2 : 1;
+  ctx.strokeRect(0, 0, rect.width, rect.height);
   
   // 计算内容区域的总宽度，并居中定位
   const contentWidth = charsPerLine.value * gridSize.value;
-  const offsetX = (canvas.width - contentWidth) / 2;
+  const offsetX = (rect.width - contentWidth) / 2;
   
   // 循环绘制每个字符的一行
   for (let rowIndex = 0; rowIndex < chars.length; rowIndex++) {
@@ -317,18 +331,23 @@ function drawPage(pageIndex: number, chars: string[]) {
         ctx.fillStyle = '#000000';
         
         // 提高文字渲染质量
-        if (props.fontWeight === 'bold') {
-          // 对于加粗文字，使用描边方式增强清晰度
+        if (props.fontWeight === 'bold' || props.highQualityPrint) {
+          // 对于加粗文字或高质量模式，使用描边方式增强清晰度
           ctx.strokeStyle = '#000000';
           ctx.lineWidth = 0.5;
           ctx.strokeText(char, x, y);
         }
+        
+        // 高质量打印模式下，多次绘制提高文字质量
+        const iterations = props.highQualityPrint ? 2 : 1;
+        for (let i = 0; i < iterations; i++) {
+          ctx.fillText(char, x, y);
+        }
       } else {
         // 其余字使用用户选择的浅色
         ctx.fillStyle = props.lightColor;
+        ctx.fillText(char, x, y);
       }
-      
-      ctx.fillText(char, x, y);
     }
   }
 }
@@ -339,8 +358,15 @@ function drawTianGrid(ctx: CanvasRenderingContext2D, x: number, y: number) {
   
   // 绘制外框 - 使用用户选择的边框颜色
   ctx.strokeStyle = props.borderColor;
-  ctx.lineWidth = 1.5; // 稍微增加线宽，使线条更清晰
-  ctx.strokeRect(x - halfGrid, y - halfGrid, gridSize.value, gridSize.value);
+  ctx.lineWidth = props.highQualityPrint ? 1.8 : 1.5; // 高质量模式下线条更粗
+  
+  // 确保线条精确绘制在像素边界上，避免模糊
+  const x1 = Math.floor(x - halfGrid) + 0.5;
+  const y1 = Math.floor(y - halfGrid) + 0.5;
+  const width = Math.floor(gridSize.value);
+  const height = Math.floor(gridSize.value);
+  
+  ctx.strokeRect(x1, y1, width, height);
   
   // 绘制十字线 - 使用边框颜色但透明度降低
   ctx.beginPath();
@@ -350,11 +376,11 @@ function drawTianGrid(ctx: CanvasRenderingContext2D, x: number, y: number) {
   ctx.setLineDash([3, 3]); // 调整虚线样式，使其更明显
   
   // 横线
-  ctx.moveTo(x - halfGrid, y);
-  ctx.lineTo(x + halfGrid, y);
+  ctx.moveTo(Math.floor(x1), Math.floor(y) + 0.5);
+  ctx.lineTo(Math.floor(x1 + width), Math.floor(y) + 0.5);
   // 竖线
-  ctx.moveTo(x, y - halfGrid);
-  ctx.lineTo(x, y + halfGrid);
+  ctx.moveTo(Math.floor(x) + 0.5, Math.floor(y1));
+  ctx.lineTo(Math.floor(x) + 0.5, Math.floor(y1 + height));
   ctx.stroke();
   
   // 重置虚线设置
@@ -367,8 +393,15 @@ function drawMiGrid(ctx: CanvasRenderingContext2D, x: number, y: number) {
   
   // 绘制外框 - 使用用户选择的边框颜色
   ctx.strokeStyle = props.borderColor;
-  ctx.lineWidth = 1.5; // 稍微增加线宽，使线条更清晰
-  ctx.strokeRect(x - halfGrid, y - halfGrid, gridSize.value, gridSize.value);
+  ctx.lineWidth = props.highQualityPrint ? 1.8 : 1.5; // 高质量模式下线条更粗
+  
+  // 确保线条精确绘制在像素边界上，避免模糊
+  const x1 = Math.floor(x - halfGrid) + 0.5;
+  const y1 = Math.floor(y - halfGrid) + 0.5;
+  const width = Math.floor(gridSize.value);
+  const height = Math.floor(gridSize.value);
+  
+  ctx.strokeRect(x1, y1, width, height);
   
   // 绘制米字格线 - 使用边框颜色但透明度降低
   ctx.beginPath();
@@ -378,17 +411,17 @@ function drawMiGrid(ctx: CanvasRenderingContext2D, x: number, y: number) {
   ctx.setLineDash([3, 3]); // 调整虚线样式，使其更明显
   
   // 横线
-  ctx.moveTo(x - halfGrid, y);
-  ctx.lineTo(x + halfGrid, y);
+  ctx.moveTo(Math.floor(x1), Math.floor(y) + 0.5);
+  ctx.lineTo(Math.floor(x1 + width), Math.floor(y) + 0.5);
   // 竖线
-  ctx.moveTo(x, y - halfGrid);
-  ctx.lineTo(x, y + halfGrid);
+  ctx.moveTo(Math.floor(x) + 0.5, Math.floor(y1));
+  ctx.lineTo(Math.floor(x) + 0.5, Math.floor(y1 + height));
   
   // 绘制对角线
-  ctx.moveTo(x - halfGrid, y - halfGrid);
-  ctx.lineTo(x + halfGrid, y + halfGrid);
-  ctx.moveTo(x + halfGrid, y - halfGrid);
-  ctx.lineTo(x - halfGrid, y + halfGrid);
+  ctx.moveTo(Math.floor(x1), Math.floor(y1));
+  ctx.lineTo(Math.floor(x1 + width), Math.floor(y1 + height));
+  ctx.moveTo(Math.floor(x1 + width), Math.floor(y1));
+  ctx.lineTo(Math.floor(x1), Math.floor(y1 + height));
   ctx.stroke();
   
   // 重置虚线设置
@@ -456,6 +489,8 @@ function convertToRgba(hex: string, alpha: number): string {
   border: 1px solid #eaeaea;
   image-rendering: -webkit-optimize-contrast; /* 提高Chrome中的渲染质量 */
   image-rendering: crisp-edges; /* 提高常规渲染质量 */
+  -webkit-font-smoothing: antialiased; /* 改善字体渲染 */
+  -moz-osx-font-smoothing: grayscale; /* 改善Firefox字体渲染 */
 }
 
 @media print {
@@ -491,6 +526,14 @@ function convertToRgba(hex: string, alpha: number): string {
     max-width: 100%;
     height: auto;
     margin: 0 auto;
+    image-rendering: -webkit-optimize-contrast; /* 确保打印时也应用高质量渲染 */
+    image-rendering: crisp-edges;
+    print-color-adjust: exact; /* 确保打印时颜色准确 */
+    -webkit-print-color-adjust: exact;
+  }
+  
+  @page {
+    margin: 0.5cm; /* 减少页边距，让内容更大 */
   }
 }
 </style> 

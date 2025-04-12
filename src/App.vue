@@ -12,6 +12,7 @@ const borderColor = ref('#000000'); // 边框颜色，默认黑色
 const showPrintButton = ref(false);
 const gridCount = ref(13); // 每行格子数量，默认13个
 const fontFamily = ref('楷体, KaiTi, STKaiti'); // 默认字体
+const highQualityPrint = ref(true); // 高质量打印模式
 
 // 每行格子数量选项
 const gridCountOptions = [
@@ -57,7 +58,7 @@ function selectPresetText(key: string) {
 }
 
 function handlePrint() {
-  // 直接执行打印
+  // 设置打印模式
   window.print();
 }
 
@@ -70,6 +71,7 @@ function resetForm() {
   borderColor.value = '#000000'; // 重置边框颜色
   gridCount.value = 13; // 重置为13格
   fontFamily.value = '楷体, KaiTi, STKaiti'; // 重置为默认字体
+  highQualityPrint.value = true; // 重置为高质量打印模式
   showPrintButton.value = false;
 }
 
@@ -202,6 +204,18 @@ function handleFontSelected(font: string) {
             </div>
           </div>
           
+          <div class="control-row">
+            <div class="control-group">
+              <label>打印质量设置:</label>
+              <div class="radio-group">
+                <label>
+                  <input type="checkbox" v-model="highQualityPrint" />
+                  高质量打印（适用于激光打印机）
+                </label>
+              </div>
+            </div>
+          </div>
+          
           <div class="button-group">
             <button 
               class="print-button" 
@@ -234,6 +248,7 @@ function handleFontSelected(font: string) {
             :gridCount="gridCount"
             :fontFamily="fontFamily"
             :printMode="false"
+            :highQualityPrint="highQualityPrint"
           />
         </div>
       </div>
@@ -492,12 +507,14 @@ input[type="range"] {
     max-width: 100%;
     height: auto;
     margin: 0 auto;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
   }
   
   /* 确保页面在打印时居中 */
   @page {
     size: A4;
-    margin: 1cm;
+    margin: 0.5cm;
   }
 }
 
