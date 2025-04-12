@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import WritingGrid from './components/WritingGrid.vue';
+import FontSelector from './components/FontSelector.vue';
 
 const text = ref('');
 const gridType = ref('田字格'); // 默认田字格, 可选'米字格'
@@ -9,6 +10,7 @@ const fontWeight = ref('normal'); // 字体粗细
 const lightColor = ref('#9e9e9e'); // 浅色字体颜色
 const showPrintButton = ref(false);
 const gridCount = ref(13); // 每行格子数量，默认13个
+const fontFamily = ref('楷体, KaiTi, STKaiti'); // 默认字体
 
 // 每行格子数量选项
 const gridCountOptions = [
@@ -57,7 +59,12 @@ function resetForm() {
   fontWeight.value = 'normal';
   lightColor.value = '#9e9e9e';
   gridCount.value = 13; // 重置为13格
+  fontFamily.value = '楷体, KaiTi, STKaiti'; // 重置为默认字体
   showPrintButton.value = false;
+}
+
+function handleFontSelected(font: string) {
+  fontFamily.value = font;
 }
 </script>
 
@@ -121,7 +128,7 @@ function resetForm() {
           
           <div class="control-row">
             <div class="control-group">
-              <label>字体粗细:</label>
+              <label>字体样式:</label>
               <div class="radio-group">
                 <label>
                   <input type="radio" v-model="fontWeight" value="normal" />
@@ -134,6 +141,12 @@ function resetForm() {
               </div>
             </div>
             
+            <div class="control-group">
+              <FontSelector @fontSelected="handleFontSelected" />
+            </div>
+          </div>
+          
+          <div class="control-row">
             <div class="control-group">
               <label>字体颜色:</label>
               <div class="color-options">
@@ -186,8 +199,12 @@ function resetForm() {
             :fontWeight="fontWeight" 
             :lightColor="lightColor" 
             :gridCount="gridCount"
+            :fontFamily="fontFamily"
             :printMode="false"
           />
+        </div>
+        <div class="preview-info">
+          每行显示同一个字，第一个字为深色，其余为浅色。输入的每个不同汉字会单独占一行。
         </div>
       </div>
     </div>
@@ -204,6 +221,32 @@ function resetForm() {
   --border-color: #d4edda;
   --a4-width: 210mm; /* A4纸宽度 */
   --a4-height: 297mm; /* A4纸高度 */
+}
+
+/* 预览字体样式 */
+@font-face {
+  font-family: '楷体';
+  src: local('KaiTi'), local('楷体'), local('楷体-GB2312');
+}
+
+@font-face {
+  font-family: '宋体';
+  src: local('SimSun'), local('宋体');
+}
+
+@font-face {
+  font-family: '黑体';
+  src: local('SimHei'), local('黑体');
+}
+
+@font-face {
+  font-family: '仿宋';
+  src: local('FangSong'), local('仿宋');
+}
+
+@font-face {
+  font-family: '隶书';
+  src: local('LiSu'), local('隶书');
 }
 
 .container {
@@ -277,6 +320,25 @@ textarea {
   align-items: center;
   gap: 5px;
   color: var(--text-color);
+}
+
+.font-select {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 16px;
+  background-color: white;
+}
+
+.font-preview {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 20px;
+  text-align: center;
+  background-color: white;
 }
 
 .slider-group {
