@@ -13,6 +13,7 @@ const showPrintButton = ref(false);
 const gridCount = ref(13); // 每行格子数量，默认13个
 const fontFamily = ref('楷体, KaiTi, STKaiti'); // 默认字体
 const highQualityPrint = ref(true); // 高质量打印模式
+const imageFormat = ref('png'); // 导出图片格式，可选 'png', 'jpeg', 'webp'
 
 // 每行格子数量选项
 const gridCountOptions = [
@@ -62,6 +63,21 @@ function handlePrint() {
   window.print();
 }
 
+// 导出为图片的函数
+function handleExportImage() {
+  // 通知WritingGrid组件导出图片
+  const writingGridElement = document.querySelector('.writing-grid-container');
+  if (writingGridElement) {
+    // 创建自定义事件并传递图片格式参数
+    const exportEvent = new CustomEvent('export-image', { 
+      detail: { 
+        format: imageFormat.value
+      }
+    });
+    writingGridElement.dispatchEvent(exportEvent);
+  }
+}
+
 function resetForm() {
   text.value = '';
   gridType.value = '田字格';
@@ -72,6 +88,7 @@ function resetForm() {
   gridCount.value = 13; // 重置为13格
   fontFamily.value = '楷体, KaiTi, STKaiti'; // 重置为默认字体
   highQualityPrint.value = true; // 重置为高质量打印模式
+  imageFormat.value = 'png'; // 重置为PNG格式
   showPrintButton.value = false;
 }
 
@@ -214,6 +231,24 @@ function handleFontSelected(font: string) {
                 </label>
               </div>
             </div>
+            
+            <div class="control-group">
+              <label>导出图片格式:</label>
+              <div class="radio-group">
+                <label>
+                  <input type="radio" v-model="imageFormat" value="png" />
+                  PNG
+                </label>
+                <label>
+                  <input type="radio" v-model="imageFormat" value="jpeg" />
+                  JPEG
+                </label>
+                <label>
+                  <input type="radio" v-model="imageFormat" value="webp" />
+                  WebP
+                </label>
+              </div>
+            </div>
           </div>
           
           <div class="button-group">
@@ -223,6 +258,14 @@ function handleFontSelected(font: string) {
               :disabled="!showPrintButton"
             >
               打印字帖
+            </button>
+            
+            <button 
+              class="export-button" 
+              @click="handleExportImage" 
+              :disabled="!showPrintButton"
+            >
+              导出图片
             </button>
             
             <button 
@@ -528,5 +571,25 @@ input[type="range"] {
     width: 100%;
     overflow-x: auto;
   }
+}
+
+.export-button {
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.export-button:hover {
+  background-color: #388e3c;
+}
+
+.export-button:disabled {
+  background-color: #9e9e9e;
+  cursor: not-allowed;
 }
 </style>

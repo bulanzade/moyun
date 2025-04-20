@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue';
+import { ref, onMounted, watch, computed, onUnmounted } from 'vue';
 
 const props = defineProps({
   text: {
@@ -123,6 +123,9 @@ const containerStyle = computed(() => {
   return {};
 });
 
+const isExporting = ref(false); // 是否正在导出图片
+const exportMessage = ref(''); // 导出进度消息
+
 // 初始化Canvas
 onMounted(() => {
   // 创建必要的页面和canvas
@@ -130,6 +133,20 @@ onMounted(() => {
   
   // 绘制字帖
   drawAllPages();
+
+  // 监听导出图片的事件
+  const container = document.querySelector('.writing-grid-container');
+  if (container) {
+    container.addEventListener('export-image', handleExportImage);
+  }
+});
+
+// 在组件卸载时移除事件监听
+onUnmounted(() => {
+  const container = document.querySelector('.writing-grid-container');
+  if (container) {
+    container.removeEventListener('export-image', handleExportImage);
+  }
 });
 
 // 监听属性变化，重新绘制
@@ -441,11 +458,157 @@ function convertToRgba(hex: string, alpha: number): string {
   // 返回RGBA字符串
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
+
+// 导出图片函数
+function handleExportImage(event: Event) {
+  // 设置导出状态
+  isExporting.value = true;
+  exportMessage.value = '准备导出...';
+  
+  // 使用setTimeout延迟执行，让UI有时间更新
+  setTimeout(() => {
+    // 获取格式参数
+    let format = 'png'; // 默认格式
+    
+    if (event instanceof CustomEvent && event.detail) {
+      if (event.detail.format) {
+        format = event.detail.format;
+      }
+    }
+
+    try {
+      // 获取所有页面的数量
+      const pages = document.querySelectorAll('.page');
+      
+      if (pages.length === 0) {
+        exportMessage.value = '没有可导出的内容';
+        setTimeout(() => {
+          isExporting.value = false;
+          exportMessage.value = '';
+        }, 2000);
+        return;
+      }
+      
+      exportMessage.value = '处理图片中...';
+      
+      // 如果只有一页，直接导出
+      if (pages.length === 1 && canvasRef.value.length > 0) {
+        const canvas = canvasRef.value[0];
+        if (canvas) {
+          exportCanvasAsImage(canvas, '字帖', format);
+        }
+        return;
+      }
+      
+      // 如果有多页，创建一个合并的画布
+      exportMessage.value = '合并多个页面...';
+      const mergeCanvas = document.createElement('canvas');
+      const mergeCtx = mergeCanvas.getContext('2d');
+      
+      if (!mergeCtx) {
+        exportMessage.value = '创建画布失败，请稍后再试';
+        setTimeout(() => {
+          isExporting.value = false;
+          exportMessage.value = '';
+        }, 2000);
+        return;
+      }
+      
+      // 计算合并画布的尺寸
+      let totalHeight = 0;
+      let maxWidth = 0;
+      
+      canvasRef.value.forEach(canvas => {
+        if (canvas) {
+          maxWidth = Math.max(maxWidth, canvas.width);
+          totalHeight += canvas.height;
+        }
+      });
+      
+      // 设置合并画布的尺寸
+      mergeCanvas.width = maxWidth;
+      mergeCanvas.height = totalHeight;
+      
+      // 合并所有画布
+      let currentY = 0;
+      canvasRef.value.forEach((canvas, index) => {
+        if (canvas) {
+          exportMessage.value = `处理第 ${index+1}/${canvasRef.value.length} 页...`;
+          mergeCtx.drawImage(canvas, 0, currentY);
+          currentY += canvas.height;
+        }
+      });
+      
+      // 生成有意义的文件名（使用当前日期和时间）
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}${(now.getMonth() + 1) < 10 ? '0' + (now.getMonth() + 1) : (now.getMonth() + 1)}${now.getDate() < 10 ? '0' + now.getDate() : now.getDate()}`;
+      const timeStr = `${now.getHours() < 10 ? '0' + now.getHours() : now.getHours()}${now.getMinutes() < 10 ? '0' + now.getMinutes() : now.getMinutes()}`;
+      const filename = `字帖_${dateStr}_${timeStr}`;
+      
+      exportMessage.value = '正在生成图片...';
+      // 导出合并的画布
+      exportCanvasAsImage(mergeCanvas, filename, format);
+    } catch (error) {
+      console.error('导出过程发生错误:', error);
+      exportMessage.value = '导出失败，请稍后再试';
+      setTimeout(() => {
+        isExporting.value = false;
+        exportMessage.value = '';
+      }, 2000);
+    }
+  }, 100);
+}
+
+// 导出单个画布为图片
+function exportCanvasAsImage(canvas: HTMLCanvasElement, filename: string, format: string) {
+  try {
+    exportMessage.value = '正在保存图片...';
+    // 创建下载链接
+    const link = document.createElement('a');
+    
+    // 将画布转换为图片URL
+    const imgData = canvas.toDataURL(`image/${format}`, 1.0);
+    
+    // 设置下载属性
+    link.download = `${filename}.${format}`;
+    link.href = imgData;
+    
+    // 模拟点击下载
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    // 导出成功
+    exportMessage.value = '导出成功！';
+    setTimeout(() => {
+      isExporting.value = false;
+      exportMessage.value = '';
+    }, 2000);
+  } catch (error) {
+    console.error('导出图片失败:', error);
+    exportMessage.value = '导出图片失败，请稍后再试';
+    setTimeout(() => {
+      isExporting.value = false;
+      exportMessage.value = '';
+    }, 2000);
+  }
+}
 </script>
 
 <template>
   <div class="writing-grid-container" :style="containerStyle">
-    <!-- 页面将在JS中动态创建 -->
+    <!-- 进度指示器 -->
+    <div v-if="isExporting" class="export-overlay">
+      <div class="export-progress">
+        <div class="export-spinner"></div>
+        <div class="export-message">{{ exportMessage }}</div>
+      </div>
+    </div>
+    
+    <!-- 字帖内容 -->
+    <div v-if="text.trim().length === 0" class="empty-message">
+      请输入要生成字帖的文字
+    </div>
   </div>
 </template>
 
@@ -535,5 +698,49 @@ function convertToRgba(hex: string, alpha: number): string {
   @page {
     margin: 0.5cm; /* 减少页边距，让内容更大 */
   }
+}
+
+/* 导出进度样式 */
+.export-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.export-progress {
+  background-color: white;
+  padding: 20px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.export-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #3498db;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 10px;
+}
+
+.export-message {
+  font-size: 16px;
+  font-weight: bold;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 </style> 
