@@ -41,6 +41,14 @@ const props = defineProps({
   highQualityPrint: {
     type: Boolean,
     default: true
+  },
+  displayMode: {
+    type: String,
+    default: 'single-char-per-line' // 'single-char-per-line' 或 'multi-chars-per-line'
+  },
+  lightCharCount: {
+    type: Number,
+    default: 1 // 一行多字模式下每个字符的浅色字符数量
   }
 });
 
@@ -83,10 +91,21 @@ const rowsPerPage = computed(() => {
 
 // 计算需要的页数
 const totalPages = computed(() => {
-  const uniqueChars = [...new Set(props.text.replace(/\s+/g, ''))];
-  const pages = Math.ceil(uniqueChars.length / rowsPerPage.value);
-  // 确保至少有一页
-  return Math.max(1, pages);
+  if (props.displayMode === 'single-char-per-line') {
+    // 一字一行模式：每个字符占一行
+    const uniqueChars = [...new Set(props.text.replace(/\s+/g, ''))];
+    const pages = Math.ceil(uniqueChars.length / rowsPerPage.value);
+    return Math.max(1, pages);
+  } else {
+    // 一行多字模式：需要计算所有字符需要的格子数
+    const cleanText = props.text.replace(/\s+/g, '');
+    const charsPerGroup = 1 + props.lightCharCount; // 每个字符组：1个深色 + N个浅色
+    const totalCellsNeeded = cleanText.length * charsPerGroup;
+    const cellsPerRow = props.gridCount;
+    const rowsNeeded = Math.ceil(totalCellsNeeded / cellsPerRow);
+    const pages = Math.ceil(rowsNeeded / rowsPerPage.value);
+    return Math.max(1, pages);
+  }
 });
 
 // 使文字相对格子更大的系数（根据格子数自动调整）
@@ -185,6 +204,18 @@ watch(() => props.highQualityPrint, () => {
   drawAllPages();
 });
 
+watch(() => props.displayMode, () => {
+  createPages();
+  drawAllPages();
+});
+
+watch(() => props.lightCharCount, () => {
+  if (props.displayMode === 'multi-chars-per-line') {
+    createPages();
+    drawAllPages();
+  }
+});
+
 // 创建所需的页面和canvas
 function createPages() {
   // 清空现有的引用
@@ -200,21 +231,17 @@ function createPages() {
     // 清空现有页面
     pageContainer.innerHTML = '';
     
-    // 文本处理，去除多余空格和换行符，提取唯一字符
+    // 文本处理，去除多余空格和换行符
     const cleanText = props.text.replace(/\s+/g, '');
-    const uniqueChars = [...new Set(cleanText)];
     
     // 如果没有字符，创建一个空页面
-    if (uniqueChars.length === 0) {
+    if (cleanText.length === 0) {
       // 创建页面容器
       const pageDiv = document.createElement('div');
       pageDiv.className = 'page';
       pageContainer.appendChild(pageDiv);
       return;
     }
-    
-    // 计算每页显示的字符数量
-    const charsPerPage = rowsPerPage.value;
     
     // 为每一页创建div和canvas
     for (let i = 0; i < totalPages.value; i++) {
@@ -225,13 +252,26 @@ function createPages() {
         pageDiv.classList.add('page-break');
       }
       
-      // 计算该页应显示的字符数量
-      const startIdx = i * charsPerPage;
-      const endIdx = Math.min(startIdx + charsPerPage, uniqueChars.length);
-      const pageCharsCount = endIdx - startIdx;
+      // 计算该页的行数
+      let rowsForThisPage: number;
+      if (props.displayMode === 'single-char-per-line') {
+        // 一字一行模式
+        const uniqueChars = [...new Set(cleanText)];
+        const startIdx = i * rowsPerPage.value;
+        const endIdx = Math.min(startIdx + rowsPerPage.value, uniqueChars.length);
+        rowsForThisPage = endIdx - startIdx;
+      } else {
+        // 一行多字模式
+        const charsPerGroup = 1 + props.lightCharCount;
+        const cellsPerRow = props.gridCount;
+        const charsPerRow = Math.floor(cellsPerRow / charsPerGroup);
+        const startRowIndex = i * rowsPerPage.value;
+        const endRowIndex = Math.min((i + 1) * rowsPerPage.value, Math.ceil(cleanText.length / charsPerRow));
+        rowsForThisPage = endRowIndex - startRowIndex;
+      }
       
-      // 如果这页没有字符，则不创建
-      if (pageCharsCount <= 0) continue;
+      // 如果这页没有行，则不创建
+      if (rowsForThisPage <= 0) continue;
       
       // 创建canvas
       const canvas = document.createElement('canvas');
@@ -242,7 +282,6 @@ function createPages() {
       canvas.style.width = `${baseWidth}px`;
       
       // 估算高度
-      const rowsForThisPage = endIdx - startIdx;
       const baseHeight = rowsForThisPage * lineHeight.value;
       canvas.style.height = `${baseHeight}px`;
       
@@ -267,21 +306,38 @@ function createPages() {
 
 // 绘制所有页面
 function drawAllPages() {
-  // 文本处理，去除多余空格和换行符，提取唯一字符
-  const cleanText = props.text.replace(/\s+/g, '');
-  const uniqueChars = [...new Set(cleanText)];
-  
-  // 为每个页面绘制相应的内容
-  for (let page = 0; page < totalPages.value; page++) {
-    const startCharIndex = page * rowsPerPage.value;
-    const endCharIndex = Math.min((page + 1) * rowsPerPage.value, uniqueChars.length);
-    const charsForThisPage = uniqueChars.slice(startCharIndex, endCharIndex);
+  if (props.displayMode === 'single-char-per-line') {
+    // 一字一行模式：每个字符占一行
+    const cleanText = props.text.replace(/\s+/g, '');
+    const uniqueChars = [...new Set(cleanText)];
     
-    drawPage(page, charsForThisPage);
+    // 为每个页面绘制相应的内容
+    for (let page = 0; page < totalPages.value; page++) {
+      const startCharIndex = page * rowsPerPage.value;
+      const endCharIndex = Math.min((page + 1) * rowsPerPage.value, uniqueChars.length);
+      const charsForThisPage = uniqueChars.slice(startCharIndex, endCharIndex);
+      
+      drawPage(page, charsForThisPage);
+    }
+  } else {
+    // 一行多字模式：按顺序显示所有字符
+    const cleanText = props.text.replace(/\s+/g, '');
+    
+    // 计算每页需要的行数
+    const charsPerGroup = 1 + props.lightCharCount;
+    const cellsPerRow = props.gridCount;
+    const charsPerRow = Math.floor(cellsPerRow / charsPerGroup);
+    
+    for (let page = 0; page < totalPages.value; page++) {
+      const startRowIndex = page * rowsPerPage.value;
+      const endRowIndex = Math.min((page + 1) * rowsPerPage.value, Math.ceil(cleanText.length / charsPerRow));
+      
+      drawPageMultiChars(page, cleanText, startRowIndex, endRowIndex, charsPerRow);
+    }
   }
 }
 
-// 绘制单个页面
+// 绘制单个页面（一字一行模式）
 function drawPage(pageIndex: number, chars: string[]) {
   if (!canvasRef.value[pageIndex] || !canvasCtx.value[pageIndex]) return;
   
@@ -365,6 +421,109 @@ function drawPage(pageIndex: number, chars: string[]) {
         ctx.fillStyle = props.lightColor;
         ctx.fillText(char, x, y);
       }
+    }
+  }
+}
+
+// 绘制单个页面（一行多字模式）
+function drawPageMultiChars(pageIndex: number, allChars: string, startRowIndex: number, endRowIndex: number, charsPerRow: number) {
+  if (!canvasRef.value[pageIndex] || !canvasCtx.value[pageIndex]) return;
+  
+  const ctx = canvasCtx.value[pageIndex]!;
+  const canvas = canvasRef.value[pageIndex];
+  
+  // 增加canvas的分辨率以提高渲染质量
+  const dpr = props.highQualityPrint ? (window.devicePixelRatio || 1) * 2 : (window.devicePixelRatio || 1);
+  const rect = canvas.getBoundingClientRect();
+  
+  // 设置canvas尺寸为实际物理像素大小
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  
+  // 缩放上下文以匹配css尺寸
+  ctx.scale(dpr, dpr);
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  
+  // 清空画布
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  // 设置背景色为白色
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  
+  // 设置字体抗锯齿和平滑度
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  
+  // 设置字体 - 使用自动计算的字体大小和用户选择的字体
+  ctx.font = `${props.fontWeight} ${calculatedFontSize.value}px ${props.fontFamily}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  
+  // 添加边框 - 使用用户选择的边框颜色
+  ctx.strokeStyle = props.borderColor;
+  ctx.lineWidth = props.highQualityPrint ? 1.2 : 1;
+  ctx.strokeRect(0, 0, rect.width, rect.height);
+  
+  // 计算内容区域的总宽度，并居中定位
+  const contentWidth = charsPerLine.value * gridSize.value;
+  const offsetX = (rect.width - contentWidth) / 2;
+  
+  const charsPerGroup = 1 + props.lightCharCount; // 每个字符组：1个深色 + N个浅色
+  
+  // 计算该页的起始字符索引
+  const startCharIndex = startRowIndex * charsPerRow;
+  const endCharIndex = Math.min(endRowIndex * charsPerRow, allChars.length);
+  
+  let currentCol = 0;
+  let currentRow = 0;
+  
+  // 遍历该页的所有字符
+  for (let charIndex = startCharIndex; charIndex < endCharIndex; charIndex++) {
+    const char = allChars[charIndex];
+    
+    // 绘制这个字符组（1个深色 + N个浅色）
+    for (let i = 0; i < charsPerGroup; i++) {
+      // 检查是否超出当前行的格子数
+      if (currentCol >= charsPerLine.value) {
+        currentCol = 0;
+        currentRow++;
+      }
+      
+      const x = offsetX + currentCol * gridSize.value + gridSize.value / 2;
+      const y = currentRow * lineHeight.value + lineHeight.value / 2;
+      
+      // 绘制格子
+      if (props.gridType === '田字格') {
+        drawTianGrid(ctx, x, y);
+      } else {
+        drawMiGrid(ctx, x, y);
+      }
+      
+      // 绘制文字
+      if (i === 0) {
+        // 第一个字使用深黑色
+        ctx.fillStyle = '#000000';
+        
+        // 提高文字渲染质量
+        if (props.fontWeight === 'bold' || props.highQualityPrint) {
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = 0.5;
+          ctx.strokeText(char, x, y);
+        }
+        
+        const iterations = props.highQualityPrint ? 2 : 1;
+        for (let j = 0; j < iterations; j++) {
+          ctx.fillText(char, x, y);
+        }
+      } else {
+        // 其余字使用用户选择的浅色
+        ctx.fillStyle = props.lightColor;
+        ctx.fillText(char, x, y);
+      }
+      
+      currentCol++;
     }
   }
 }

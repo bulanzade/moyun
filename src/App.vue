@@ -14,6 +14,8 @@ const gridCount = ref(13); // 每行格子数量，默认13个
 const fontFamily = ref('楷体, KaiTi, STKaiti'); // 默认字体
 const highQualityPrint = ref(true); // 高质量打印模式
 const imageFormat = ref('png'); // 导出图片格式，可选 'png', 'jpeg', 'webp'
+const displayMode = ref('single-char-per-line'); // 显示模式：'single-char-per-line' 一字一行, 'multi-chars-per-line' 一行多字
+const lightCharCount = ref(1); // 一行多字模式下每个字符的浅色字符数量
 
 // 每行格子数量选项
 const gridCountOptions = [
@@ -89,6 +91,8 @@ function resetForm() {
   fontFamily.value = '楷体, KaiTi, STKaiti'; // 重置为默认字体
   highQualityPrint.value = true; // 重置为高质量打印模式
   imageFormat.value = 'png'; // 重置为PNG格式
+  displayMode.value = 'single-char-per-line'; // 重置为一字一行模式
+  lightCharCount.value = 1; // 重置浅色字符数量
   showPrintButton.value = false;
 }
 
@@ -152,6 +156,31 @@ function handleFontSelected(font: string) {
                   {{ option.label }}
                 </label>
               </div>
+            </div>
+          </div>
+          
+          <div class="control-row">
+            <div class="control-group">
+              <label>显示模式:</label>
+              <div class="radio-group">
+                <label>
+                  <input type="radio" v-model="displayMode" value="single-char-per-line" />
+                  一字一行
+                </label>
+                <label>
+                  <input type="radio" v-model="displayMode" value="multi-chars-per-line" />
+                  一行多字
+                </label>
+              </div>
+            </div>
+            
+            <div class="control-group" v-if="displayMode === 'multi-chars-per-line'">
+              <label>每个字符浅色数量:</label>
+              <select v-model="lightCharCount" class="select-input">
+                <option v-for="count in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]" :key="count" :value="count">
+                  {{ count }}个
+                </option>
+              </select>
             </div>
           </div>
           
@@ -292,6 +321,8 @@ function handleFontSelected(font: string) {
             :fontFamily="fontFamily"
             :printMode="false"
             :highQualityPrint="highQualityPrint"
+            :displayMode="displayMode"
+            :lightCharCount="lightCharCount"
           />
         </div>
       </div>
@@ -417,6 +448,23 @@ textarea {
   border-radius: 4px;
   font-size: 16px;
   background-color: white;
+}
+
+.select-input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 16px;
+  background-color: white;
+  color: var(--text-color);
+  cursor: pointer;
+}
+
+.select-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(30, 132, 73, 0.2);
 }
 
 .font-preview {
