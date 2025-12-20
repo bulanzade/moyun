@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed, onUnmounted } from 'vue';
+import { ref, onMounted, watch, computed, onUnmounted, nextTick } from 'vue';
 
 const props = defineProps({
   text: {
@@ -46,9 +46,17 @@ const props = defineProps({
     type: String,
     default: 'single-char-per-line' // 'single-char-per-line' 或 'multi-chars-per-line'
   },
+  darkCharCount: {
+    type: Number,
+    default: 1 // 一行多字模式下每个字符的深色字符数量
+  },
   lightCharCount: {
     type: Number,
     default: 1 // 一行多字模式下每个字符的浅色字符数量
+  },
+  emptyGridCount: {
+    type: Number,
+    default: 0 // 一行多字模式下每个字符后的空白格数量
   }
 });
 
@@ -99,7 +107,7 @@ const totalPages = computed(() => {
   } else {
     // 一行多字模式：需要计算所有字符需要的格子数
     const cleanText = props.text.replace(/\s+/g, '');
-    const charsPerGroup = 1 + props.lightCharCount; // 每个字符组：1个深色 + N个浅色
+    const charsPerGroup = props.darkCharCount + props.lightCharCount + props.emptyGridCount; // 每个字符组：N个深色 + M个浅色 + K个空白格
     const totalCellsNeeded = cleanText.length * charsPerGroup;
     const cellsPerRow = props.gridCount;
     const rowsNeeded = Math.ceil(totalCellsNeeded / cellsPerRow);
@@ -209,7 +217,21 @@ watch(() => props.displayMode, () => {
   drawAllPages();
 });
 
+watch(() => props.darkCharCount, () => {
+  if (props.displayMode === 'multi-chars-per-line') {
+    createPages();
+    drawAllPages();
+  }
+});
+
 watch(() => props.lightCharCount, () => {
+  if (props.displayMode === 'multi-chars-per-line') {
+    createPages();
+    drawAllPages();
+  }
+});
+
+watch(() => props.emptyGridCount, () => {
   if (props.displayMode === 'multi-chars-per-line') {
     createPages();
     drawAllPages();
@@ -223,85 +245,102 @@ function createPages() {
   canvasCtx.value = [];
   pageRefs.value = [];
   
-  // 下一个tick再创建，确保DOM已更新
-  setTimeout(() => {
-    const pageContainer = document.querySelector('.writing-grid-container');
-    if (!pageContainer) return;
-    
-    // 清空现有页面
-    pageContainer.innerHTML = '';
-    
-    // 文本处理，去除多余空格和换行符
-    const cleanText = props.text.replace(/\s+/g, '');
-    
-    // 如果没有字符，创建一个空页面
-    if (cleanText.length === 0) {
-      // 创建页面容器
-      const pageDiv = document.createElement('div');
-      pageDiv.className = 'page';
-      pageContainer.appendChild(pageDiv);
-      return;
-    }
-    
-    // 为每一页创建div和canvas
-    for (let i = 0; i < totalPages.value; i++) {
-      // 创建页面容器
-      const pageDiv = document.createElement('div');
-      pageDiv.className = 'page';
-      if (i > 0) {
-        pageDiv.classList.add('page-break');
+  // 使用 nextTick 确保 Vue 完成 DOM 更新后再操作
+  nextTick(() => {
+    // 使用 setTimeout 确保在下一个事件循环中执行，避免与 Vue 的更新冲突
+    setTimeout(() => {
+      const pageContainer = document.querySelector('.writing-grid-container');
+      if (!pageContainer) return;
+      
+      // 安全地清空现有页面 - 只删除 .page 元素，保留其他 Vue 管理的元素
+      const pagesToRemove: Node[] = [];
+      for (let i = 0; i < pageContainer.childNodes.length; i++) {
+        const child = pageContainer.childNodes[i];
+        if (child.nodeType === Node.ELEMENT_NODE) {
+          const element = child as HTMLElement;
+          if (element.classList.contains('page')) {
+            pagesToRemove.push(child);
+          }
+        }
+      }
+      pagesToRemove.forEach(node => {
+        if (node.parentNode) {
+          node.parentNode.removeChild(node);
+        }
+      });
+      
+      // 文本处理，去除多余空格和换行符
+      const cleanText = props.text.replace(/\s+/g, '');
+      
+      // 如果没有字符，创建一个空页面
+      if (cleanText.length === 0) {
+        // 创建页面容器
+        const pageDiv = document.createElement('div');
+        pageDiv.className = 'page';
+        pageContainer.appendChild(pageDiv);
+        return;
       }
       
-      // 计算该页的行数
-      let rowsForThisPage: number;
-      if (props.displayMode === 'single-char-per-line') {
-        // 一字一行模式
-        const uniqueChars = [...new Set(cleanText)];
-        const startIdx = i * rowsPerPage.value;
-        const endIdx = Math.min(startIdx + rowsPerPage.value, uniqueChars.length);
-        rowsForThisPage = endIdx - startIdx;
-      } else {
-        // 一行多字模式
-        const charsPerGroup = 1 + props.lightCharCount;
-        const cellsPerRow = props.gridCount;
-        const charsPerRow = Math.floor(cellsPerRow / charsPerGroup);
-        const startRowIndex = i * rowsPerPage.value;
-        const endRowIndex = Math.min((i + 1) * rowsPerPage.value, Math.ceil(cleanText.length / charsPerRow));
-        rowsForThisPage = endRowIndex - startRowIndex;
+      // 为每一页创建div和canvas
+      for (let i = 0; i < totalPages.value; i++) {
+        // 创建页面容器
+        const pageDiv = document.createElement('div');
+        pageDiv.className = 'page';
+        if (i > 0) {
+          pageDiv.classList.add('page-break');
+        }
+        
+        // 计算该页的行数
+        let rowsForThisPage: number;
+        if (props.displayMode === 'single-char-per-line') {
+          // 一字一行模式
+          const uniqueChars = [...new Set(cleanText)];
+          const startIdx = i * rowsPerPage.value;
+          const endIdx = Math.min(startIdx + rowsPerPage.value, uniqueChars.length);
+          rowsForThisPage = endIdx - startIdx;
+        } else {
+          // 一行多字模式
+          const charsPerGroup = props.darkCharCount + props.lightCharCount + props.emptyGridCount;
+          const cellsPerRow = props.gridCount;
+          const charsPerRow = Math.floor(cellsPerRow / charsPerGroup);
+          const startRowIndex = i * rowsPerPage.value;
+          const endRowIndex = Math.min((i + 1) * rowsPerPage.value, Math.ceil(cleanText.length / charsPerRow));
+          rowsForThisPage = endRowIndex - startRowIndex;
+        }
+        
+        // 如果这页没有行，则不创建
+        if (rowsForThisPage <= 0) continue;
+        
+        // 创建canvas
+        const canvas = document.createElement('canvas');
+        canvas.className = 'writing-canvas';
+        
+        // 设置canvas的CSS尺寸
+        const baseWidth = availableWidthPx.value;
+        canvas.style.width = `${baseWidth}px`;
+        
+        // 估算高度
+        const baseHeight = rowsForThisPage * lineHeight.value;
+        canvas.style.height = `${baseHeight}px`;
+        
+        pageDiv.appendChild(canvas);
+        
+        // 将页面添加到容器
+        pageContainer.appendChild(pageDiv);
+        
+        // 存储引用
+        pageRefs.value.push(pageDiv);
+        canvasRef.value.push(canvas);
+        
+        // 获取绘图上下文
+        const ctx = canvas.getContext('2d', { alpha: false }); // alpha: false 提高性能
+        canvasCtx.value.push(ctx);
       }
       
-      // 如果这页没有行，则不创建
-      if (rowsForThisPage <= 0) continue;
-      
-      // 创建canvas
-      const canvas = document.createElement('canvas');
-      canvas.className = 'writing-canvas';
-      
-      // 设置canvas的CSS尺寸
-      const baseWidth = availableWidthPx.value;
-      canvas.style.width = `${baseWidth}px`;
-      
-      // 估算高度
-      const baseHeight = rowsForThisPage * lineHeight.value;
-      canvas.style.height = `${baseHeight}px`;
-      
-      pageDiv.appendChild(canvas);
-      
-      // 将页面添加到容器
-      pageContainer.appendChild(pageDiv);
-      
-      // 存储引用
-      pageRefs.value.push(pageDiv);
-      canvasRef.value.push(canvas);
-      
-      // 获取绘图上下文
-      const ctx = canvas.getContext('2d', { alpha: false }); // alpha: false 提高性能
-      canvasCtx.value.push(ctx);
-    }
-    
-    // 绘制所有页面
-    drawAllPages();
-  }, 0);
+      // 绘制所有页面
+      drawAllPages();
+    }, 0);
+  });
 }
 
 // 绘制所有页面
@@ -324,7 +363,7 @@ function drawAllPages() {
     const cleanText = props.text.replace(/\s+/g, '');
     
     // 计算每页需要的行数
-    const charsPerGroup = 1 + props.lightCharCount;
+    const charsPerGroup = props.darkCharCount + props.lightCharCount + props.emptyGridCount;
     const cellsPerRow = props.gridCount;
     const charsPerRow = Math.floor(cellsPerRow / charsPerGroup);
     
@@ -470,8 +509,6 @@ function drawPageMultiChars(pageIndex: number, allChars: string, startRowIndex: 
   const contentWidth = charsPerLine.value * gridSize.value;
   const offsetX = (rect.width - contentWidth) / 2;
   
-  const charsPerGroup = 1 + props.lightCharCount; // 每个字符组：1个深色 + N个浅色
-  
   // 计算该页的起始字符索引
   const startCharIndex = startRowIndex * charsPerRow;
   const endCharIndex = Math.min(endRowIndex * charsPerRow, allChars.length);
@@ -483,8 +520,11 @@ function drawPageMultiChars(pageIndex: number, allChars: string, startRowIndex: 
   for (let charIndex = startCharIndex; charIndex < endCharIndex; charIndex++) {
     const char = allChars[charIndex];
     
-    // 绘制这个字符组（1个深色 + N个浅色）
-    for (let i = 0; i < charsPerGroup; i++) {
+    // 绘制这个字符组（N个深色 + M个浅色 + K个空白格）
+    let cellIndex = 0;
+    
+    // 绘制深色字符
+    for (let i = 0; i < props.darkCharCount; i++) {
       // 检查是否超出当前行的格子数
       if (currentCol >= charsPerLine.value) {
         currentCol = 0;
@@ -501,29 +541,71 @@ function drawPageMultiChars(pageIndex: number, allChars: string, startRowIndex: 
         drawMiGrid(ctx, x, y);
       }
       
-      // 绘制文字
-      if (i === 0) {
-        // 第一个字使用深黑色
-        ctx.fillStyle = '#000000';
-        
-        // 提高文字渲染质量
-        if (props.fontWeight === 'bold' || props.highQualityPrint) {
-          ctx.strokeStyle = '#000000';
-          ctx.lineWidth = 0.5;
-          ctx.strokeText(char, x, y);
-        }
-        
-        const iterations = props.highQualityPrint ? 2 : 1;
-        for (let j = 0; j < iterations; j++) {
-          ctx.fillText(char, x, y);
-        }
-      } else {
-        // 其余字使用用户选择的浅色
-        ctx.fillStyle = props.lightColor;
+      // 绘制深色文字
+      ctx.fillStyle = '#000000';
+      
+      // 提高文字渲染质量
+      if (props.fontWeight === 'bold' || props.highQualityPrint) {
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 0.5;
+        ctx.strokeText(char, x, y);
+      }
+      
+      const iterations = props.highQualityPrint ? 2 : 1;
+      for (let j = 0; j < iterations; j++) {
         ctx.fillText(char, x, y);
       }
       
       currentCol++;
+      cellIndex++;
+    }
+    
+    // 绘制浅色字符
+    for (let i = 0; i < props.lightCharCount; i++) {
+      // 检查是否超出当前行的格子数
+      if (currentCol >= charsPerLine.value) {
+        currentCol = 0;
+        currentRow++;
+      }
+      
+      const x = offsetX + currentCol * gridSize.value + gridSize.value / 2;
+      const y = currentRow * lineHeight.value + lineHeight.value / 2;
+      
+      // 绘制格子
+      if (props.gridType === '田字格') {
+        drawTianGrid(ctx, x, y);
+      } else {
+        drawMiGrid(ctx, x, y);
+      }
+      
+      // 绘制浅色文字
+      ctx.fillStyle = props.lightColor;
+      ctx.fillText(char, x, y);
+      
+      currentCol++;
+      cellIndex++;
+    }
+    
+    // 绘制空白格
+    for (let i = 0; i < props.emptyGridCount; i++) {
+      // 检查是否超出当前行的格子数
+      if (currentCol >= charsPerLine.value) {
+        currentCol = 0;
+        currentRow++;
+      }
+      
+      const x = offsetX + currentCol * gridSize.value + gridSize.value / 2;
+      const y = currentRow * lineHeight.value + lineHeight.value / 2;
+      
+      // 只绘制格子，不绘制文字
+      if (props.gridType === '田字格') {
+        drawTianGrid(ctx, x, y);
+      } else {
+        drawMiGrid(ctx, x, y);
+      }
+      
+      currentCol++;
+      cellIndex++;
     }
   }
 }
