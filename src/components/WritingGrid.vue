@@ -446,23 +446,21 @@ function drawPage(pageIndex: number, chars: string[]) {
       if (col === 0) {
         // 第一个字使用深黑色
         ctx.fillStyle = '#000000';
-
-        // 提高文字渲染质量
-        if (props.fontWeight === 'bold' || props.highQualityPrint) {
-          // 对于加粗文字或高质量模式，使用描边方式增强清晰度
-          ctx.strokeStyle = '#000000';
-          ctx.lineWidth = 0.5;
-          ctx.strokeText(char, x, y);
-        }
-
-        // 高质量打印模式下，多次绘制提高文字质量
-        const iterations = props.highQualityPrint ? 2 : 1;
-        for (let i = 0; i < iterations; i++) {
-          ctx.fillText(char, x, y);
-        }
       } else {
-        // 其余字使用用户选择的浅色
-        ctx.fillStyle = props.lightColor;
+        ctx.fillStyle = props.lightColor
+      }
+
+      // 提高文字渲染质量
+      if (props.fontWeight === 'bold' || props.highQualityPrint) {
+        // 对于加粗文字或高质量模式，使用描边方式增强清晰度
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 0.5;
+        ctx.strokeText(char, x, y);
+      }
+
+      // 高质量打印模式下，多次绘制提高文字质量
+      const iterations = props.highQualityPrint ? 2 : 1;
+      for (let i = 0; i < iterations; i++) {
         ctx.fillText(char, x, y);
       }
     }
