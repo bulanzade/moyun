@@ -413,7 +413,7 @@ function drawPage(pageIndex: number, chars: string[]) {
   ctx.imageSmoothingQuality = 'high';
 
   // 设置字体 - 使用自动计算的字体大小和用户选择的字体
-  ctx.font = `${props.fontWeight} ${calculatedFontSize.value}px ${props.fontFamily}`;
+  ctx.font = `${props.fontWeight} ${calculatedFontSize.value}px ${sanitizeFontFamilyForCanvas(props.fontFamily)}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
@@ -501,7 +501,7 @@ function drawPageMultiChars(pageIndex: number, allChars: string, startCellIndex:
   ctx.imageSmoothingQuality = 'high';
 
   // 设置字体 - 使用自动计算的字体大小和用户选择的字体
-  ctx.font = `${props.fontWeight} ${calculatedFontSize.value}px ${props.fontFamily}`;
+  ctx.font = `${props.fontWeight} ${calculatedFontSize.value}px ${sanitizeFontFamilyForCanvas(props.fontFamily)}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
@@ -660,6 +660,26 @@ function convertToRgba(hex: string, alpha: number): string {
 
   // 返回RGBA字符串
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// 将传入的 font-family 字符串（可能包含多个以逗号分隔的字体）转换为适用于 Canvas 的安全格式：
+// - 去除外层引号
+// - 如果字体名称包含空格或特殊字符，则使用单引号包裹
+// 这样可以避免 Canvas 在解析 font-family 时因未加引号的多词字体名而回退到不期望的字体，导致字形或尺寸异常
+function sanitizeFontFamilyForCanvas(fontFamily: string): string {
+  return fontFamily
+      .split(',')
+      .map(part => {
+        const name = part.trim().replace(/^["']|["']$/g, '');
+        // 如果包含空格或非字母数字及连字符，则加引号
+        if (/\s/.test(name) || /[^a-zA-Z0-9\-]/.test(name)) {
+          // 转义内部单引号
+          const escaped = name.replace(/'/g, "\\'");
+          return `'${escaped}'`;
+        }
+        return name;
+      })
+      .join(', ');
 }
 
 // 导出图片函数
@@ -946,4 +966,4 @@ function exportCanvasAsImage(canvas: HTMLCanvasElement, filename: string, format
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
-</style> 
+</style>
