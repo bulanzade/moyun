@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed, onUnmounted, nextTick } from 'vue';
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
+import type { ComponentPublicInstance } from 'vue';
 
 const props = defineProps({
   text: {
@@ -9,10 +10,6 @@ const props = defineProps({
   gridType: {
     type: String,
     default: '田字格'
-  },
-  fontSize: {
-    type: Number,
-    default: 40
   },
   fontWeight: {
     type: String,
@@ -34,10 +31,6 @@ const props = defineProps({
     type: String,
     default: '楷体, KaiTi, STKaiti'
   },
-  printMode: {
-    type: Boolean,
-    default: false
-  },
   highQualityPrint: {
     type: Boolean,
     default: true
@@ -57,16 +50,20 @@ const props = defineProps({
   emptyGridCount: {
     type: Number,
     default: 0 // 一行多字模式下每个字符后的空白格数量
+  },
+  imageFormat: {
+    type: String,
+    default: 'png' // 导出图片格式
+  },
+  exportRequestId: {
+    type: Number,
+    default: 0 // 父组件递增该值触发一次图片导出
   }
 });
 
-const canvasRef = ref<HTMLCanvasElement[]>([]);
-const pageRefs = ref<HTMLDivElement[]>([]);
-const canvasCtx = ref<(CanvasRenderingContext2D | null)[]>([]);
-
 // A4纸宽度（毫米）和边距
 const A4_WIDTH_MM = 210;
-const MARGIN_MM = 20; // 左右各10mm边距
+const MARGIN_MM = 20; // 左右共留出20mm边距
 const AVAILABLE_WIDTH_MM = A4_WIDTH_MM - MARGIN_MM;
 
 // 毫米转像素比例 (1 mm ≈ 3.78 px)
@@ -76,10 +73,7 @@ const MM_TO_PX = 3.78;
 const availableWidthPx = computed(() => AVAILABLE_WIDTH_MM * MM_TO_PX);
 
 // 根据每行格子数计算格子尺寸
-const gridSize = computed(() => {
-  // 根据格子数和可用宽度计算每个格子的尺寸
-  return availableWidthPx.value / props.gridCount;
-});
+const gridSize = computed(() => availableWidthPx.value / props.gridCount);
 
 // 行间距
 const lineHeight = computed(() => gridSize.value * 1.2);
@@ -89,36 +83,63 @@ const charsPerLine = computed(() => props.gridCount);
 
 // 每页行数 (A4纸张大约可容纳的行数)
 const rowsPerPage = computed(() => {
-  // A4页面高度约为297mm，留出上下边距（各10mm），计算可容纳行数
-  const pageHeight = 277; // 可用高度(mm)
-  // 将lineHeight值转换为mm
+  const pageHeight = 277; // 可用高度(mm)，A4高297mm留出上下边距
   const rowHeightInMm = lineHeight.value / MM_TO_PX;
-  // 计算可容纳的行数
   return Math.floor(pageHeight / rowHeightInMm);
 });
 
-// 计算需要的页数
-const totalPages = computed(() => {
+// 文本输入防抖：避免每次按键都全量重建并重绘所有页面
+const debouncedText = ref(props.text);
+let textDebounceTimer: number | undefined;
+watch(() => props.text, (value) => {
+  window.clearTimeout(textDebounceTimer);
+  textDebounceTimer = window.setTimeout(() => {
+    debouncedText.value = value;
+  }, 250);
+});
+onUnmounted(() => window.clearTimeout(textDebounceTimer));
+
+const cleanText = computed(() => debouncedText.value.replace(/\s+/g, ''));
+const uniqueChars = computed(() => [...new Set(cleanText.value)]);
+const charsPerGroup = computed(() => props.darkCharCount + props.lightCharCount + props.emptyGridCount);
+
+// 每页的绘制内容：一字一行模式记录本页字符，一行多字模式记录本页的单元格范围
+interface PageSpec {
+  chars: string[];
+  startCell: number;
+  endCell: number;
+  rows: number;
+}
+
+// 分页是纯计算，页面和canvas全部由模板渲染，不手动操作DOM
+const pages = computed<PageSpec[]>(() => {
+  if (cleanText.value.length === 0 || charsPerGroup.value === 0) return [];
+
+  const result: PageSpec[] = [];
   if (props.displayMode === 'single-char-per-line') {
-    // 一字一行模式：每个字符占一行
-    const uniqueChars = [...new Set(props.text.replace(/\s+/g, ''))];
-    const pages = Math.ceil(uniqueChars.length / rowsPerPage.value);
-    return Math.max(1, pages);
+    const chars = uniqueChars.value;
+    for (let start = 0; start < chars.length; start += rowsPerPage.value) {
+      const pageChars = chars.slice(start, start + rowsPerPage.value);
+      result.push({ chars: pageChars, startCell: 0, endCell: 0, rows: pageChars.length });
+    }
   } else {
-    // 一行多字模式：按单元格计算页数（允许字符组跨页）
-    const cleanText = props.text.replace(/\s+/g, '');
-    const charsPerGroup = props.darkCharCount + props.lightCharCount + props.emptyGridCount;
-    const cellsPerRow = props.gridCount;
-    const cellsPerPage = rowsPerPage.value * cellsPerRow;
-    const totalCellsNeeded = cleanText.length * charsPerGroup;
-    const pages = Math.ceil(totalCellsNeeded / cellsPerPage);
-    return Math.max(1, pages);
+    const totalCells = cleanText.value.length * charsPerGroup.value;
+    const cellsPerPage = rowsPerPage.value * charsPerLine.value;
+    for (let start = 0; start < totalCells; start += cellsPerPage) {
+      const end = Math.min(start + cellsPerPage, totalCells);
+      result.push({
+        chars: [],
+        startCell: start,
+        endCell: end,
+        rows: Math.ceil((end - start) / charsPerLine.value)
+      });
+    }
   }
+  return result;
 });
 
 // 使文字相对格子更大的系数（根据格子数自动调整）
 const fontSizeMultiplier = computed(() => {
-  // 格子越多，倍数越小，确保文字不会太小或太大
   if (props.gridCount >= 18) return 0.85;
   if (props.gridCount >= 15) return 0.9;
   if (props.gridCount >= 13) return 0.95;
@@ -127,409 +148,103 @@ const fontSizeMultiplier = computed(() => {
 });
 
 // 自动计算的字体大小
-const calculatedFontSize = computed(() => {
-  // 增加字体大小系数，使文字更清晰
-  const base = gridSize.value * 0.65 * fontSizeMultiplier.value;
+const calculatedFontSize = computed(() => gridSize.value * 0.65 * fontSizeMultiplier.value);
 
-  // 打印模式下略微增大字体，补偿打印时的缩小效果
-  return props.printMode ? base * 1.1 : base;
-});
+const canvasRefs = ref<(HTMLCanvasElement | null)[]>([]);
 
-// 根据是否为打印模式调整样式
-const containerStyle = computed(() => {
-  if (props.printMode) {
-    return {
-      padding: '0',
-      margin: '0',
-      width: '100%',
-      maxWidth: 'none',
-      background: 'none',
-      boxShadow: 'none'
-    };
-  }
-  return {};
-});
-
-const isExporting = ref(false); // 是否正在导出图片
-const exportMessage = ref(''); // 导出进度消息
-
-// 初始化Canvas
-onMounted(() => {
-  // 创建必要的页面和canvas
-  createPages();
-
-  // 绘制字帖
-  drawAllPages();
-
-  // 监听导出图片的事件
-  const container = document.querySelector('.writing-grid-container');
-  if (container) {
-    container.addEventListener('export-image', handleExportImage);
-  }
-});
-
-// 在组件卸载时移除事件监听
-onUnmounted(() => {
-  const container = document.querySelector('.writing-grid-container');
-  if (container) {
-    container.removeEventListener('export-image', handleExportImage);
-  }
-});
-
-// 监听属性变化，重新绘制
-watch(() => props.text, () => {
-  createPages();
-  drawAllPages();
-});
-
-watch(() => props.gridType, () => {
-  drawAllPages();
-});
-
-watch(() => props.gridCount, () => {
-  // 重新创建页面并绘制
-  createPages();
-  drawAllPages();
-});
-
-watch(() => props.fontWeight, () => {
-  drawAllPages();
-});
-
-watch(() => props.fontFamily, () => {
-  drawAllPages();
-});
-
-watch(() => props.lightColor, () => {
-  drawAllPages();
-});
-
-watch(() => props.borderColor, () => {
-  drawAllPages();
-});
-
-watch(() => props.highQualityPrint, () => {
-  drawAllPages();
-});
-
-watch(() => props.displayMode, () => {
-  createPages();
-  drawAllPages();
-});
-
-watch(() => props.darkCharCount, () => {
-  if (props.displayMode === 'multi-chars-per-line') {
-    createPages();
-    drawAllPages();
-  }
-});
-
-watch(() => props.lightCharCount, () => {
-  if (props.displayMode === 'multi-chars-per-line') {
-    createPages();
-    drawAllPages();
-  }
-});
-
-watch(() => props.emptyGridCount, () => {
-  if (props.displayMode === 'multi-chars-per-line') {
-    createPages();
-    drawAllPages();
-  }
-});
-
-// 创建所需的页面和canvas
-function createPages() {
-  // 清空现有的引用
-  canvasRef.value = [];
-  canvasCtx.value = [];
-  pageRefs.value = [];
-
-  // 使用 nextTick 确保 Vue 完成 DOM 更新后再操作
-  nextTick(() => {
-    // 使用 setTimeout 确保在下一个事件循环中执行，避免与 Vue 的更新冲突
-    setTimeout(() => {
-      const pageContainer = document.querySelector('.writing-grid-container');
-      if (!pageContainer) return;
-
-      // 安全地清空现有页面 - 只删除 .page 元素，保留其他 Vue 管理的元素
-      const pagesToRemove: Node[] = [];
-      for (let i = 0; i < pageContainer.childNodes.length; i++) {
-        const child = pageContainer.childNodes[i];
-        if (child.nodeType === Node.ELEMENT_NODE) {
-          const element = child as HTMLElement;
-          if (element.classList.contains('page')) {
-            pagesToRemove.push(child);
-          }
-        }
-      }
-      pagesToRemove.forEach(node => {
-        if (node.parentNode) {
-          node.parentNode.removeChild(node);
-        }
-      });
-
-      // 文本处理，去除多余空格和换行符
-      const cleanText = props.text.replace(/\s+/g, '');
-
-      // 如果没有字符，创建一个空页面
-      if (cleanText.length === 0) {
-        // 创建页面容器
-        const pageDiv = document.createElement('div');
-        pageDiv.className = 'page';
-        pageContainer.appendChild(pageDiv);
-        return;
-      }
-
-      // 为每一页创建div和canvas
-      for (let i = 0; i < totalPages.value; i++) {
-        // 创建页面容器
-        const pageDiv = document.createElement('div');
-        pageDiv.className = 'page';
-        if (i > 0) {
-          pageDiv.classList.add('page-break');
-        }
-
-        // 计算该页的行数
-        let rowsForThisPage: number;
-        if (props.displayMode === 'single-char-per-line') {
-          // 一字一行模式
-          const uniqueChars = [...new Set(cleanText)];
-          const startIdx = i * rowsPerPage.value;
-          const endIdx = Math.min(startIdx + rowsPerPage.value, uniqueChars.length);
-          rowsForThisPage = endIdx - startIdx;
-        } else {
-          // 一行多字模式 - 使用按“字符组数”分页（groupsPerPage），确保页间不跳过字符
-          const charsPerGroup = props.darkCharCount + props.lightCharCount + props.emptyGridCount;
-          const cellsPerRow = props.gridCount;
-          const totalChars = cleanText.length;
-          const totalCellsNeeded = totalChars * charsPerGroup;
-          const cellsPerPage = rowsPerPage.value * cellsPerRow;
-
-          const pageStartCell = i * cellsPerPage;
-          const pageEndCell = Math.min((i + 1) * cellsPerPage, totalCellsNeeded);
-
-          const numCellsOnPage = Math.max(0, pageEndCell - pageStartCell);
-          rowsForThisPage = numCellsOnPage > 0 ? Math.ceil(numCellsOnPage / cellsPerRow) : 0;
-        }
-
-        // 即使本页没有行，也创建占位 canvas 以保证索引对齐（高度至少为一行的高度以防止高度为0导致测量问题）
-        const canvas = document.createElement('canvas');
-        canvas.className = 'writing-canvas';
-
-        // 设置canvas的CSS尺寸
-        const baseWidth = availableWidthPx.value;
-        canvas.style.width = `${baseWidth}px`;
-
-        // 估算高度：至少预留一行高度，避免 canvas 高度为 0 导致后续绘制或合并问题
-        const effectiveRows = rowsForThisPage > 0 ? rowsForThisPage : 1;
-        const baseHeight = effectiveRows * lineHeight.value;
-        canvas.style.height = `${baseHeight}px`;
-
-        pageDiv.appendChild(canvas);
-
-        // 将页面添加到容器
-        pageContainer.appendChild(pageDiv);
-
-        // 存储引用（按页面索引赋值以保持索引对齐）
-        pageRefs.value[i] = pageDiv;
-        canvasRef.value[i] = canvas;
-
-        // 获取绘图上下文
-        const ctx = canvas.getContext('2d', { alpha: false }); // alpha: false 提高性能
-        canvasCtx.value[i] = ctx;
-      }
-
-      // 绘制所有页面
-      drawAllPages();
-    }, 0);
-  });
+function setCanvasRef(el: Element | ComponentPublicInstance | null, index: number) {
+  canvasRefs.value[index] = el instanceof HTMLCanvasElement ? el : null;
 }
 
-// 绘制所有页面
+// 首次挂载及任何影响分页或绘制样式的属性变化后统一重绘
+watch(
+  [
+    pages,
+    () => props.gridType,
+    () => props.fontWeight,
+    () => props.fontFamily,
+    () => props.lightColor,
+    () => props.borderColor,
+    () => props.highQualityPrint
+  ],
+  () => {
+    void nextTick(drawAllPages);
+  },
+  { immediate: true }
+);
+
 function drawAllPages() {
-  if (props.displayMode === 'single-char-per-line') {
-    // 一字一行模式：每个字符占一行
-    const cleanText = props.text.replace(/\s+/g, '');
-    const uniqueChars = [...new Set(cleanText)];
-
-    // 为每个页面绘制相应的内容
-    for (let page = 0; page < totalPages.value; page++) {
-      const startCharIndex = page * rowsPerPage.value;
-      const endCharIndex = Math.min((page + 1) * rowsPerPage.value, uniqueChars.length);
-      const charsForThisPage = uniqueChars.slice(startCharIndex, endCharIndex);
-
-      drawPage(page, charsForThisPage);
-    }
-  } else {
-    // 一行多字模式：按顺序显示所有字符（按“单元格”分页，避免按行假设导致的错位）
-    const cleanText = props.text.replace(/\s+/g, '');
-
-    const charsPerGroup = props.darkCharCount + props.lightCharCount + props.emptyGridCount;
-    const cellsPerRow = props.gridCount;
-    const totalChars = cleanText.length;
-    const totalCellsNeeded = totalChars * charsPerGroup;
-    const cellsPerPage = rowsPerPage.value * cellsPerRow;
-
-    for (let page = 0; page < totalPages.value; page++) {
-      const pageStartCell = page * cellsPerPage;
-      const pageEndCell = Math.min((page + 1) * cellsPerPage, totalCellsNeeded);
-
-      // 绘制该页的单元格范围（允许字符组跨页）
-      drawPageMultiChars(page, cleanText, pageStartCell, pageEndCell);
-    }
+  for (let i = 0; i < pages.value.length; i++) {
+    drawPage(i);
   }
 }
 
-// 绘制单个页面（一字一行模式）
-function drawPage(pageIndex: number, chars: string[]) {
-  if (!canvasRef.value[pageIndex] || !canvasCtx.value[pageIndex]) return;
+// 绘制单个页面
+function drawPage(pageIndex: number) {
+  const canvas = canvasRefs.value[pageIndex];
+  const spec = pages.value[pageIndex];
+  if (!canvas || !spec) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
 
-  const ctx = canvasCtx.value[pageIndex]!;
-  const canvas = canvasRef.value[pageIndex];
+  const cssWidth = availableWidthPx.value;
+  const cssHeight = spec.rows * lineHeight.value;
 
-  // 增加canvas的分辨率以提高渲染质量
+  // 提高canvas分辨率以提升渲染质量
   const dpr = props.highQualityPrint ? (window.devicePixelRatio || 1) * 2 : (window.devicePixelRatio || 1);
-  const rect = canvas.getBoundingClientRect();
+  canvas.width = Math.max(1, Math.round(cssWidth * dpr));
+  canvas.height = Math.max(1, Math.round(cssHeight * dpr));
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  // 设置canvas尺寸为实际物理像素大小
-  canvas.width = rect.width * dpr;
-  canvas.height = rect.height * dpr;
-
-  // 缩放上下文以匹配css尺寸
-  ctx.scale(dpr, dpr);
-  canvas.style.width = rect.width + 'px';
-  canvas.style.height = rect.height + 'px';
-
-  // 清空画布
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // 设置背景色为白色
+  // 设置canvas宽高会自动清空画布，这里填充白色背景
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillRect(0, 0, cssWidth, cssHeight);
 
-  // 设置字体抗锯齿和平滑度
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
 
-  // 设置字体 - 使用自动计算的字体大小和用户选择的字体
   ctx.font = `${props.fontWeight} ${calculatedFontSize.value}px ${sanitizeFontFamilyForCanvas(props.fontFamily)}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  // 添加边框 - 使用用户选择的边框颜色
+  // 页面外框，向内收缩半个线宽避免被裁剪
   ctx.strokeStyle = props.borderColor;
   ctx.lineWidth = props.highQualityPrint ? 1.2 : 1;
-  ctx.strokeRect(0, 0, rect.width, rect.height);
+  ctx.strokeRect(ctx.lineWidth / 2, ctx.lineWidth / 2, cssWidth - ctx.lineWidth, cssHeight - ctx.lineWidth);
 
-  // 计算内容区域的总宽度，并居中定位
   const contentWidth = charsPerLine.value * gridSize.value;
-  const offsetX = (rect.width - contentWidth) / 2;
+  const offsetX = (cssWidth - contentWidth) / 2;
 
-  // 循环绘制每个字符的一行
+  if (props.displayMode === 'single-char-per-line') {
+    drawSingleCharsPage(ctx, spec.chars, offsetX);
+  } else {
+    drawMultiCharsPage(ctx, spec.startCell, spec.endCell, offsetX);
+  }
+}
+
+// 绘制一字一行模式：每个字符占一行，第一个字深色，其余浅色
+function drawSingleCharsPage(ctx: CanvasRenderingContext2D, chars: string[], offsetX: number) {
   for (let rowIndex = 0; rowIndex < chars.length; rowIndex++) {
     const char = chars[rowIndex];
-
-    // 循环绘制这一行的所有字符
     for (let col = 0; col < charsPerLine.value; col++) {
       const x = offsetX + col * gridSize.value + gridSize.value / 2;
       const y = rowIndex * lineHeight.value + lineHeight.value / 2;
-
-      // 绘制格子
-      if (props.gridType === '田字格') {
-        drawTianGrid(ctx, x, y);
-      } else {
-        drawMiGrid(ctx, x, y);
-      }
-
-      // 绘制文字 - 第一个字深色，其他浅色
-      if (col === 0) {
-        // 第一个字使用深黑色
-        ctx.fillStyle = '#000000';
-      } else {
-        ctx.fillStyle = props.lightColor
-      }
-
-      // 提高文字渲染质量
-      if (props.fontWeight === 'bold' || props.highQualityPrint) {
-        // 对于加粗文字或高质量模式，使用描边方式增强清晰度
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 0.5;
-        ctx.strokeText(char, x, y);
-      }
-
-      // 高质量打印模式下，多次绘制提高文字质量
-      const iterations = props.highQualityPrint ? 2 : 1;
-      for (let i = 0; i < iterations; i++) {
-        ctx.fillText(char, x, y);
-      }
+      drawGridCell(ctx, x, y);
+      drawChar(ctx, char, x, y, col === 0);
     }
   }
 }
 
-// 绘制单个页面（一行多字模式）- 使用按单元格范围绘制，允许字符组跨页
-function drawPageMultiChars(pageIndex: number, allChars: string, startCellIndex: number, endCellIndex: number) {
-  if (!canvasRef.value[pageIndex] || !canvasCtx.value[pageIndex]) return;
-
-  const ctx = canvasCtx.value[pageIndex]!;
-  const canvas = canvasRef.value[pageIndex];
-
-  // 增加canvas的分辨率以提高渲染质量
-  const dpr = props.highQualityPrint ? (window.devicePixelRatio || 1) * 2 : (window.devicePixelRatio || 1);
-  const rect = canvas.getBoundingClientRect();
-
-  // 设置canvas尺寸为实际物理像素大小
-  canvas.width = rect.width * dpr;
-  canvas.height = rect.height * dpr;
-
-  // 缩放上下文以匹配css尺寸
-  ctx.scale(dpr, dpr);
-  canvas.style.width = rect.width + 'px';
-  canvas.style.height = rect.height + 'px';
-
-  // 清空画布
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // 设置背景色为白色
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // 设置字体抗锯齿和平滑度
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-
-  // 设置字体 - 使用自动计算的字体大小和用户选择的字体
-  ctx.font = `${props.fontWeight} ${calculatedFontSize.value}px ${sanitizeFontFamilyForCanvas(props.fontFamily)}`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-
-  // 添加边框 - 使用用户选择的边框颜色
-  ctx.strokeStyle = props.borderColor;
-  ctx.lineWidth = props.highQualityPrint ? 1.2 : 1;
-  ctx.strokeRect(0, 0, rect.width, rect.height);
-
-  // 计算内容区域的总宽度，并居中定位
-  const contentWidth = charsPerLine.value * gridSize.value;
-  const offsetX = (rect.width - contentWidth) / 2;
-
-  // 边界检查：将单元格索引限定在有效范围
-  const totalChars = allChars.length;
-  const charsPerGroup = props.darkCharCount + props.lightCharCount + props.emptyGridCount;
-  const totalCells = totalChars * charsPerGroup;
-  const safeStartCell = Math.max(0, Math.min(startCellIndex, totalCells));
-  const safeEndCell = Math.max(0, Math.min(endCellIndex, totalCells));
-  if (safeEndCell <= safeStartCell) return;
-
+// 绘制一行多字模式：按单元格范围绘制，允许字符组跨页
+function drawMultiCharsPage(ctx: CanvasRenderingContext2D, startCell: number, endCell: number, offsetX: number) {
   let currentCol = 0;
   let currentRow = 0;
 
-  // 遍历单元格，允许字符组跨页显示
-  for (let cellIndex = safeStartCell; cellIndex < safeEndCell; cellIndex++) {
-    const charIndex = Math.floor(cellIndex / charsPerGroup);
-    const innerIndex = cellIndex % charsPerGroup;
-    const char = allChars[charIndex];
+  for (let cellIndex = startCell; cellIndex < endCell; cellIndex++) {
+    const charIndex = Math.floor(cellIndex / charsPerGroup.value);
+    const innerIndex = cellIndex % charsPerGroup.value;
+    const char = cleanText.value[charIndex];
 
-    // 换行处理
     if (currentCol >= charsPerLine.value) {
       currentCol = 0;
       currentRow++;
@@ -538,95 +253,57 @@ function drawPageMultiChars(pageIndex: number, allChars: string, startCellIndex:
     const x = offsetX + currentCol * gridSize.value + gridSize.value / 2;
     const y = currentRow * lineHeight.value + lineHeight.value / 2;
 
-    // 绘制格子
-    if (props.gridType === '田字格') {
-      drawTianGrid(ctx, x, y);
-    } else {
-      drawMiGrid(ctx, x, y);
-    }
+    drawGridCell(ctx, x, y);
 
-    // 根据 innerIndex 决定绘制内容
     if (innerIndex < props.darkCharCount) {
-      // 深色
-      ctx.fillStyle = '#000000';
-      if (props.fontWeight === 'bold' || props.highQualityPrint) {
-        ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 0.5;
-        ctx.strokeText(char, x, y);
-      }
-      const iterations = props.highQualityPrint ? 2 : 1;
-      for (let j = 0; j < iterations; j++) {
-        ctx.fillText(char, x, y);
-      }
+      drawChar(ctx, char, x, y, true);
     } else if (innerIndex < props.darkCharCount + props.lightCharCount) {
-      // 浅色
-      ctx.fillStyle = props.lightColor;
-      ctx.fillText(char, x, y);
-    } else {
-      // 空白：仅绘制格子
+      drawChar(ctx, char, x, y, false);
     }
+    // 其余为空白格：仅绘制格子
 
     currentCol++;
   }
 }
 
-// 绘制田字格
-function drawTianGrid(ctx: CanvasRenderingContext2D, x: number, y: number) {
-  const halfGrid = gridSize.value / 2;
+// 绘制单个字：深色字在加粗或高质量模式下用描边增强清晰度，浅色字不加描边
+function drawChar(ctx: CanvasRenderingContext2D, char: string, x: number, y: number, dark: boolean) {
+  if (dark) {
+    ctx.fillStyle = '#000000';
+    if (props.fontWeight === 'bold' || props.highQualityPrint) {
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 0.5;
+      ctx.strokeText(char, x, y);
+    }
+  } else {
+    ctx.fillStyle = props.lightColor;
+  }
 
-  // 绘制外框 - 使用用户选择的边框颜色
-  ctx.strokeStyle = props.borderColor;
-  ctx.lineWidth = props.highQualityPrint ? 1.8 : 1.5; // 高质量模式下线条更粗
-
-  // 确保线条精确绘制在像素边界上，避免模糊
-  const x1 = Math.floor(x - halfGrid) + 0.5;
-  const y1 = Math.floor(y - halfGrid) + 0.5;
-  const width = Math.floor(gridSize.value);
-  const height = Math.floor(gridSize.value);
-
-  ctx.strokeRect(x1, y1, width, height);
-
-  // 绘制十字线 - 使用边框颜色但透明度降低
-  ctx.beginPath();
-  // 将选择的颜色转换为RGBA格式，增加透明度
-  const borderColorRgba = convertToRgba(props.borderColor, 0.5);
-  ctx.strokeStyle = borderColorRgba;
-  ctx.setLineDash([3, 3]); // 调整虚线样式，使其更明显
-
-  // 横线
-  ctx.moveTo(Math.floor(x1), Math.floor(y) + 0.5);
-  ctx.lineTo(Math.floor(x1 + width), Math.floor(y) + 0.5);
-  // 竖线
-  ctx.moveTo(Math.floor(x) + 0.5, Math.floor(y1));
-  ctx.lineTo(Math.floor(x) + 0.5, Math.floor(y1 + height));
-  ctx.stroke();
-
-  // 重置虚线设置
-  ctx.setLineDash([]);
+  // 高质量打印模式下多次绘制提高文字质量
+  const iterations = props.highQualityPrint ? 2 : 1;
+  for (let i = 0; i < iterations; i++) {
+    ctx.fillText(char, x, y);
+  }
 }
 
-// 绘制米字格
-function drawMiGrid(ctx: CanvasRenderingContext2D, x: number, y: number) {
+// 绘制格子（田字格或米字格）
+function drawGridCell(ctx: CanvasRenderingContext2D, x: number, y: number) {
   const halfGrid = gridSize.value / 2;
 
-  // 绘制外框 - 使用用户选择的边框颜色
+  // 外框
   ctx.strokeStyle = props.borderColor;
-  ctx.lineWidth = props.highQualityPrint ? 1.8 : 1.5; // 高质量模式下线条更粗
-
+  ctx.lineWidth = props.highQualityPrint ? 1.8 : 1.5;
   // 确保线条精确绘制在像素边界上，避免模糊
   const x1 = Math.floor(x - halfGrid) + 0.5;
   const y1 = Math.floor(y - halfGrid) + 0.5;
   const width = Math.floor(gridSize.value);
   const height = Math.floor(gridSize.value);
-
   ctx.strokeRect(x1, y1, width, height);
 
-  // 绘制米字格线 - 使用边框颜色但透明度降低
+  // 内部辅助线：边框颜色降低透明度并使用虚线
   ctx.beginPath();
-  // 将选择的颜色转换为RGBA格式，增加透明度
-  const borderColorRgba = convertToRgba(props.borderColor, 0.5);
-  ctx.strokeStyle = borderColorRgba;
-  ctx.setLineDash([3, 3]); // 调整虚线样式，使其更明显
+  ctx.strokeStyle = convertToRgba(props.borderColor, 0.5);
+  ctx.setLineDash([3, 3]);
 
   // 横线
   ctx.moveTo(Math.floor(x1), Math.floor(y) + 0.5);
@@ -635,190 +312,153 @@ function drawMiGrid(ctx: CanvasRenderingContext2D, x: number, y: number) {
   ctx.moveTo(Math.floor(x) + 0.5, Math.floor(y1));
   ctx.lineTo(Math.floor(x) + 0.5, Math.floor(y1 + height));
 
-  // 绘制对角线
-  ctx.moveTo(Math.floor(x1), Math.floor(y1));
-  ctx.lineTo(Math.floor(x1 + width), Math.floor(y1 + height));
-  ctx.moveTo(Math.floor(x1 + width), Math.floor(y1));
-  ctx.lineTo(Math.floor(x1), Math.floor(y1 + height));
-  ctx.stroke();
+  // 米字格增加对角线
+  if (props.gridType === '米字格') {
+    ctx.moveTo(Math.floor(x1), Math.floor(y1));
+    ctx.lineTo(Math.floor(x1 + width), Math.floor(y1 + height));
+    ctx.moveTo(Math.floor(x1 + width), Math.floor(y1));
+    ctx.lineTo(Math.floor(x1), Math.floor(y1 + height));
+  }
 
-  // 重置虚线设置
+  ctx.stroke();
   ctx.setLineDash([]);
 }
 
-// 将十六进制颜色转换为RGBA格式
+// 将十六进制颜色转换为RGBA格式（支持3位与6位写法）
 function convertToRgba(hex: string, alpha: number): string {
-  // 移除#号（如果有）
-  hex = hex.replace('#', '');
-
-  // 解析RGB值
-  const r = parseInt(hex.substring(0, 2), 16);
-  const g = parseInt(hex.substring(2, 4), 16);
-  const b = parseInt(hex.substring(4, 6), 16);
-
-  // 返回RGBA字符串
+  let value = hex.replace('#', '');
+  if (value.length === 3) {
+    value = value.split('').map(c => c + c).join('');
+  }
+  const r = parseInt(value.substring(0, 2), 16);
+  const g = parseInt(value.substring(2, 4), 16);
+  const b = parseInt(value.substring(4, 6), 16);
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-// 将传入的 font-family 字符串（可能包含多个以逗号分隔的字体）转换为适用于 Canvas 的安全格式：
-// - 去除外层引号
-// - 如果字体名称包含空格或特殊字符，则使用单引号包裹
-// 这样可以避免 Canvas 在解析 font-family 时因未加引号的多词字体名而回退到不期望的字体，导致字形或尺寸异常
+// 将 font-family 字符串转换为适用于 Canvas 的安全格式：
+// 多词或含特殊字符的字体名用单引号包裹，避免 Canvas 解析失败回退到非预期字体，
+// 导致字形或尺寸异常
 function sanitizeFontFamilyForCanvas(fontFamily: string): string {
   return fontFamily
-      .split(',')
-      .map(part => {
-        const name = part.trim().replace(/^["']|["']$/g, '');
-        // 如果包含空格或非字母数字及连字符，则加引号
-        if (/\s/.test(name) || /[^a-zA-Z0-9\-]/.test(name)) {
-          // 转义内部单引号
-          const escaped = name.replace(/'/g, "\\'");
-          return `'${escaped}'`;
-        }
-        return name;
-      })
-      .join(', ');
+    .split(',')
+    .map(part => {
+      const name = part.trim().replace(/^["']|["']$/g, '');
+      if (/\s/.test(name) || /[^a-zA-Z0-9\-]/.test(name)) {
+        const escaped = name.replace(/'/g, "\\'");
+        return `'${escaped}'`;
+      }
+      return name;
+    })
+    .join(', ');
 }
 
-// 导出图片函数
-function handleExportImage(event: Event) {
-  // 设置导出状态
+// ---------- 导出图片 ----------
+
+const isExporting = ref(false);
+const exportMessage = ref('');
+
+// 父组件递增 exportRequestId 触发导出
+watch(() => props.exportRequestId, (id) => {
+  if (id > 0) {
+    void runExport();
+  }
+});
+
+// 用1x1画布探测浏览器是否真正支持该图片格式（如Safari不支持WebP）
+function supportsImageFormat(format: string): boolean {
+  const probe = document.createElement('canvas');
+  probe.width = 1;
+  probe.height = 1;
+  return probe.toDataURL(`image/${format}`).startsWith(`data:image/${format}`);
+}
+
+function formatTimestamp(): string {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const dateStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+  const timeStr = `${pad(now.getHours())}${pad(now.getMinutes())}`;
+  return `${dateStr}_${timeStr}`;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => window.setTimeout(resolve, ms));
+}
+
+// 逐页导出为图片文件，避免把多页合并成一张超出浏览器画布上限的巨图
+async function runExport() {
+  if (isExporting.value) return;
   isExporting.value = true;
   exportMessage.value = '准备导出...';
+  await nextTick();
 
-  // 使用setTimeout延迟执行，让UI有时间更新
-  setTimeout(() => {
-    // 获取格式参数
-    let format = 'png'; // 默认格式
-
-    if (event instanceof CustomEvent && event.detail) {
-      if (event.detail.format) {
-        format = event.detail.format;
-      }
+  try {
+    let format = props.imageFormat;
+    if (!supportsImageFormat(format)) {
+      format = 'png';
     }
 
-    try {
-      // 获取所有页面的数量
-      const pages = document.querySelectorAll('.page');
+    const canvases = canvasRefs.value
+      .slice(0, pages.value.length)
+      .filter((canvas): canvas is HTMLCanvasElement => canvas !== null);
 
-      if (pages.length === 0) {
-        exportMessage.value = '没有可导出的内容';
-        setTimeout(() => {
-          isExporting.value = false;
-          exportMessage.value = '';
-        }, 2000);
-        return;
-      }
-
-      exportMessage.value = '处理图片中...';
-
-      // 如果只有一页，直接导出
-      if (pages.length === 1 && canvasRef.value.length > 0) {
-        const canvas = canvasRef.value[0];
-        if (canvas) {
-          exportCanvasAsImage(canvas, '字帖', format);
-        }
-        return;
-      }
-
-      // 如果有多页，创建一个合并的画布
-      exportMessage.value = '合并多个页面...';
-      const mergeCanvas = document.createElement('canvas');
-      const mergeCtx = mergeCanvas.getContext('2d');
-
-      if (!mergeCtx) {
-        exportMessage.value = '创建画布失败，请稍后再试';
-        setTimeout(() => {
-          isExporting.value = false;
-          exportMessage.value = '';
-        }, 2000);
-        return;
-      }
-
-      // 计算合并画布的尺寸
-      let totalHeight = 0;
-      let maxWidth = 0;
-
-      canvasRef.value.forEach(canvas => {
-        if (canvas) {
-          maxWidth = Math.max(maxWidth, canvas.width);
-          totalHeight += canvas.height;
-        }
-      });
-
-      // 设置合并画布的尺寸
-      mergeCanvas.width = maxWidth;
-      mergeCanvas.height = totalHeight;
-
-      // 合并所有画布
-      let currentY = 0;
-      canvasRef.value.forEach((canvas, index) => {
-        if (canvas) {
-          exportMessage.value = `处理第 ${index+1}/${canvasRef.value.length} 页...`;
-          mergeCtx.drawImage(canvas, 0, currentY);
-          currentY += canvas.height;
-        }
-      });
-
-      // 生成有意义的文件名（使用当前日期和时间）
-      const now = new Date();
-      const dateStr = `${now.getFullYear()}${(now.getMonth() + 1) < 10 ? '0' + (now.getMonth() + 1) : (now.getMonth() + 1)}${now.getDate() < 10 ? '0' + now.getDate() : now.getDate()}`;
-      const timeStr = `${now.getHours() < 10 ? '0' + now.getHours() : now.getHours()}${now.getMinutes() < 10 ? '0' + now.getMinutes() : now.getMinutes()}`;
-      const filename = `字帖_${dateStr}_${timeStr}`;
-
-      exportMessage.value = '正在生成图片...';
-      // 导出合并的画布
-      exportCanvasAsImage(mergeCanvas, filename, format);
-    } catch (error) {
-      console.error('导出过程发生错误:', error);
-      exportMessage.value = '导出失败，请稍后再试';
-      setTimeout(() => {
-        isExporting.value = false;
-        exportMessage.value = '';
-      }, 2000);
+    if (canvases.length === 0) {
+      finishExport('没有可导出的内容');
+      return;
     }
-  }, 100);
+
+    const timestamp = formatTimestamp();
+    for (let i = 0; i < canvases.length; i++) {
+      if (canvases.length > 1) {
+        exportMessage.value = `导出第 ${i + 1}/${canvases.length} 页...`;
+        await nextTick();
+      }
+      const filename = canvases.length > 1 ? `字帖_${timestamp}_第${i + 1}页` : `字帖_${timestamp}`;
+      await exportCanvasAsImage(canvases[i], filename, format);
+      // 连续触发下载之间稍作间隔，避免被浏览器拦截
+      if (i < canvases.length - 1) {
+        await sleep(300);
+      }
+    }
+    finishExport('导出成功！');
+  } catch (error) {
+    console.error('导出过程发生错误:', error);
+    finishExport('导出失败，请稍后再试');
+  }
 }
 
-// 导出单个画布为图片
-function exportCanvasAsImage(canvas: HTMLCanvasElement, filename: string, format: string) {
-  try {
-    exportMessage.value = '正在保存图片...';
-    // 创建下载链接
-    const link = document.createElement('a');
+function exportCanvasAsImage(canvas: HTMLCanvasElement, filename: string, format: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => {
+      if (!blob) {
+        reject(new Error('生成图片数据失败'));
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.download = `${filename}.${format}`;
+      link.href = url;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+      resolve();
+    }, `image/${format}`, 1.0);
+  });
+}
 
-    // 将画布转换为图片URL
-    const imgData = canvas.toDataURL(`image/${format}`, 1.0);
-
-    // 设置下载属性
-    link.download = `${filename}.${format}`;
-    link.href = imgData;
-
-    // 模拟点击下载
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    // 导出成功
-    exportMessage.value = '导出成功！';
-    setTimeout(() => {
-      isExporting.value = false;
-      exportMessage.value = '';
-    }, 2000);
-  } catch (error) {
-    console.error('导出图片失败:', error);
-    exportMessage.value = '导出图片失败，请稍后再试';
-    setTimeout(() => {
-      isExporting.value = false;
-      exportMessage.value = '';
-    }, 2000);
-  }
+function finishExport(message: string) {
+  exportMessage.value = message;
+  window.setTimeout(() => {
+    isExporting.value = false;
+    exportMessage.value = '';
+  }, 2000);
 }
 </script>
 
 <template>
-  <div class="writing-grid-container" :style="containerStyle">
-    <!-- 进度指示器 -->
+  <div class="writing-grid-container">
+    <!-- 导出进度指示器 -->
     <div v-if="isExporting" class="export-overlay">
       <div class="export-progress">
         <div class="export-spinner"></div>
@@ -826,9 +466,23 @@ function exportCanvasAsImage(canvas: HTMLCanvasElement, filename: string, format
       </div>
     </div>
 
-    <!-- 字帖内容 -->
-    <div v-if="text.trim().length === 0" class="empty-message">
+    <!-- 空内容提示 -->
+    <div v-if="pages.length === 0" class="empty-message">
       请输入要生成字帖的文字
+    </div>
+
+    <!-- 字帖页面 -->
+    <div
+      v-for="(page, index) in pages"
+      :key="index"
+      class="page"
+      :class="{ 'page-break': index > 0 }"
+    >
+      <canvas
+        class="writing-canvas"
+        :ref="(el) => setCanvasRef(el, index)"
+        :style="{ width: `${availableWidthPx}px`, height: `${page.rows * lineHeight}px` }"
+      ></canvas>
     </div>
   </div>
 </template>
@@ -914,10 +568,6 @@ function exportCanvasAsImage(canvas: HTMLCanvasElement, filename: string, format
     image-rendering: crisp-edges;
     print-color-adjust: exact; /* 确保打印时颜色准确 */
     -webkit-print-color-adjust: exact;
-  }
-
-  @page {
-    margin: 0.5cm; /* 减少页边距，让内容更大 */
   }
 }
 

@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, defineEmits } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 
-const emit = defineEmits(['fontSelected']);
+const props = defineProps<{ modelValue?: string }>();
+const emit = defineEmits(['update:modelValue']);
+
+const DEFAULT_FONT = '楷体, KaiTi, STKaiti';
 
 // 预定义的常用中文字体
 const commonFonts = [
@@ -17,7 +20,11 @@ const commonFonts = [
 
 const detectedFonts = ref<string[]>([]);
 const availableFonts = ref<string[]>([]);
-const selectedFont = ref('楷体, KaiTi, STKaiti');
+// 双向绑定：由父组件持有字体值，重置等外部变更可以同步到下拉框
+const selectedFont = computed({
+  get: () => props.modelValue ?? DEFAULT_FONT,
+  set: (value: string) => emit('update:modelValue', value)
+});
 const isLoading = ref(false);
 const showScanButton = ref(true);
 const scanMessage = ref('');
@@ -79,14 +86,13 @@ const scanSystemFonts = async () => {
   scanMessage.value = '正在扫描本地字体...';
   
   // 如果支持Font API，尝试获取系统字体
-  if ('queryLocalFonts' in window) {
+  if (window.queryLocalFonts) {
     try {
-      // @ts-ignore - TypeScript可能不认识这个API
       const fonts = await window.queryLocalFonts();
       const uniqueFonts = new Set<string>();
-      
+
       // 不过滤字体，添加所有系统字体
-      fonts.forEach((font: any) => {
+      fonts.forEach((font) => {
         uniqueFonts.add(font.family);
       });
       
@@ -115,13 +121,6 @@ const scanSystemFonts = async () => {
   isLoading.value = false;
 };
 
-// 选择字体
-const handleSelectFont = (e: Event) => {
-  const target = e.target as HTMLSelectElement;
-  selectedFont.value = target.value;
-  emit('fontSelected', target.value);
-};
-
 // 组件挂载时只检测预定义字体
 onMounted(() => {
   detectAllFonts();
@@ -135,10 +134,11 @@ onMounted(() => {
       <select 
         id="font-select" 
         v-model="selectedFont"
-        @change="handleSelectFont"
         :disabled="isLoading"
       >
-        <option v-if="isLoading && availableFonts.length === 0" value="">加载中...</option>
+        <option v-if="!availableFonts.includes(selectedFont)" :value="selectedFont">
+          {{ selectedFont.split(',')[0] }}
+        </option>
         <option v-for="font in availableFonts" :key="font" :value="font" :style="{ fontFamily: font }">
           {{ font.split(',')[0] }}
         </option>

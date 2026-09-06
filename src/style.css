@@ -42,7 +42,7 @@ button:active {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 0.5cm auto; /* 上下边距0.5cm，左右自动（居中） */
+    margin: 0.5cm;
   }
   
   html, body {

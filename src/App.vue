@@ -1,15 +1,13 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import WritingGrid from './components/WritingGrid.vue';
 import FontSelector from './components/FontSelector.vue';
 
 const text = ref('');
 const gridType = ref('田字格'); // 默认田字格, 可选'米字格'
-const fontSize = ref(40); // 字体大小，单位px，调整为默认40px
 const fontWeight = ref('normal'); // 字体粗细
 const lightColor = ref('#9e9e9e'); // 浅色字体颜色
 const borderColor = ref('#000000'); // 边框颜色，默认黑色
-const showPrintButton = ref(false);
 const gridCount = ref(13); // 每行格子数量，默认13个
 const fontFamily = ref('楷体, KaiTi, STKaiti'); // 默认字体
 const highQualityPrint = ref(true); // 高质量打印模式
@@ -18,6 +16,9 @@ const displayMode = ref('single-char-per-line'); // 显示模式：'single-char-
 const darkCharCount = ref(1); // 一行多字模式下每个字符的深色字符数量
 const lightCharCount = ref(1); // 一行多字模式下每个字符的浅色字符数量
 const emptyGridCount = ref(0); // 一行多字模式下每个字符后的空白格数量
+const exportRequestId = ref(0); // 递增该值触发WritingGrid导出图片
+
+const hasText = computed(() => text.value.trim().length > 0);
 
 // 每行格子数量选项
 const gridCountOptions = [
@@ -51,15 +52,8 @@ const presetTexts = {
   '悯农': '锄禾日当午，汗滴禾下土。谁知盘中餐，粒粒皆辛苦。'
 };
 
-function handleTextChange(e: Event) {
-  const target = e.target as HTMLTextAreaElement;
-  text.value = target.value;
-  showPrintButton.value = text.value.trim().length > 0;
-}
-
 function selectPresetText(key: string) {
   text.value = presetTexts[key as keyof typeof presetTexts];
-  showPrintButton.value = text.value.trim().length > 0;
 }
 
 function handlePrint() {
@@ -67,25 +61,14 @@ function handlePrint() {
   window.print();
 }
 
-// 导出为图片的函数
+// 导出为图片：递增请求id，由WritingGrid监听并执行导出
 function handleExportImage() {
-  // 通知WritingGrid组件导出图片
-  const writingGridElement = document.querySelector('.writing-grid-container');
-  if (writingGridElement) {
-    // 创建自定义事件并传递图片格式参数
-    const exportEvent = new CustomEvent('export-image', { 
-      detail: { 
-        format: imageFormat.value
-      }
-    });
-    writingGridElement.dispatchEvent(exportEvent);
-  }
+  exportRequestId.value++;
 }
 
 function resetForm() {
   text.value = '';
   gridType.value = '田字格';
-  fontSize.value = 40; // 重置为40px
   fontWeight.value = 'normal';
   lightColor.value = '#9e9e9e';
   borderColor.value = '#000000'; // 重置边框颜色
@@ -97,11 +80,6 @@ function resetForm() {
   darkCharCount.value = 1; // 重置深色字符数量
   lightCharCount.value = 1; // 重置浅色字符数量
   emptyGridCount.value = 0; // 重置空白格数量
-  showPrintButton.value = false;
-}
-
-function handleFontSelected(font: string) {
-  fontFamily.value = font;
 }
 </script>
 
@@ -117,8 +95,7 @@ function handleFontSelected(font: string) {
             <textarea 
               id="text-input" 
               v-model="text" 
-              @input="handleTextChange"
-              placeholder="请输入要生成字帖的文字，每个不同的字将显示为独立的一行"
+              placeholder="请输入要生成字帖的文字"
               rows="4"
             ></textarea>
           </div>
@@ -225,7 +202,7 @@ function handleFontSelected(font: string) {
             </div>
             
             <div class="control-group">
-              <FontSelector @fontSelected="handleFontSelected" />
+              <FontSelector v-model="fontFamily" />
             </div>
           </div>
           
@@ -309,7 +286,7 @@ function handleFontSelected(font: string) {
             <button 
               class="print-button" 
               @click="handlePrint" 
-              :disabled="!showPrintButton"
+              :disabled="!hasText"
             >
               打印字帖
             </button>
@@ -317,7 +294,7 @@ function handleFontSelected(font: string) {
             <button 
               class="export-button" 
               @click="handleExportImage" 
-              :disabled="!showPrintButton"
+              :disabled="!hasText"
             >
               导出图片
             </button>
@@ -338,18 +315,18 @@ function handleFontSelected(font: string) {
           <WritingGrid 
             :text="text" 
             :gridType="gridType" 
-            :fontSize="fontSize" 
             :fontWeight="fontWeight" 
             :lightColor="lightColor" 
             :borderColor="borderColor"
             :gridCount="gridCount"
             :fontFamily="fontFamily"
-            :printMode="false"
             :highQualityPrint="highQualityPrint"
             :displayMode="displayMode"
             :darkCharCount="darkCharCount"
             :lightCharCount="lightCharCount"
             :emptyGridCount="emptyGridCount"
+            :imageFormat="imageFormat"
+            :exportRequestId="exportRequestId"
           />
         </div>
       </div>
@@ -663,12 +640,6 @@ input[type="range"] {
     margin: 0 auto;
     image-rendering: -webkit-optimize-contrast;
     image-rendering: crisp-edges;
-  }
-  
-  /* 确保页面在打印时居中 */
-  @page {
-    size: A4;
-    margin: 0.5cm;
   }
 }
 
